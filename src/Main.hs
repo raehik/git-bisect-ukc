@@ -3,18 +3,13 @@ module Main where
 import Data.HashMap.Lazy as HM
 import Data.HashSet as HS
 
-main :: IO ()
-main = putStrLn "Hello, Haskell!"
-
-data Answer = GoodAnswer | BadAnswer
-
 data Message
     = MsgUserAuth String
     | MsgProblem String GitCommitName GitCommitName GitGraph
     | MsgQuestion GitCommitName
-    | MsgAnswer Answer
+    | MsgAnswer GitCommitStatus
     | MsgSolution GitCommitName
-    | MsgScore (Maybe Int)
+    | MsgScore (Maybe (String, Int))
 
 type GitCommitName = String
 type GitCommit = (GitCommitName, [GitCommitName])
@@ -24,13 +19,8 @@ data GitCommitStatus
     = GitCommitBad
     | GitCommitGood
 
-git_nodelist_to_internal :: GitGraph -> GitGraphInternal
-git_nodelist_to_internal' :: GitGraph -> GitGraphInternal -> GitGraphInternal
-git_nodelist_to_internal list = git_nodelist_to_internal' list HM.empty
-git_nodelist_to_internal' [] graph = graph
-git_nodelist_to_internal' ((commit, parents):list) graph = git_nodelist_to_internal' list (HM.insert commit parents graph)
-
 graph_01_ex_lin = [("a", []), ("b", ["a"]), ("c", ["b"])]
+
 graph_02_git_keep = [
     ("b1", ["w1"]),
     ("w1", ["w2"]),
@@ -56,6 +46,7 @@ graph_02_git_keep = [
     ("y4", []),
     ("y3", [])
     ]
+
 graph_03_david_simple = [
     ("a", []), -- good
     ("b", ["a"]),
@@ -64,6 +55,12 @@ graph_03_david_simple = [
     ("e", ["c"]),
     ("f", ["d", "e"]) -- bad
     ]
+
+git_nodelist_to_internal :: GitGraph -> GitGraphInternal
+git_nodelist_to_internal' :: GitGraph -> GitGraphInternal -> GitGraphInternal
+git_nodelist_to_internal list = git_nodelist_to_internal' list HM.empty
+git_nodelist_to_internal' [] graph = graph
+git_nodelist_to_internal' ((commit, parents):list) graph = git_nodelist_to_internal' list (HM.insert commit parents graph)
 
 git_bisect_ro graph c_good c_bad
     | subgraph_size == 1 = c_bad
@@ -131,3 +128,7 @@ ancestor_folder ancestors c_good (commit:commits)   ancestors_or_schedule
             in
                 ancestor_folder ancestors c_good commits next_ancestors_or_schedule
 
+main :: IO ()
+main = putStrLn "Hello, Haskell!"
+
+wb_send :: Message -> 
