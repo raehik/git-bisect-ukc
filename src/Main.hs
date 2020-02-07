@@ -130,5 +130,3 @@ ancestor_folder ancestors c_good (commit:commits)   ancestors_or_schedule
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
-
-wb_send :: Message -> 
