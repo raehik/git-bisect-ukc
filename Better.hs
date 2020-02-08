@@ -60,32 +60,55 @@ git_commit_to_string c (cps, ccs) =
 git_repo_calculate_descendants_and_get_heads c_bad g =
     git_repo_calculate_descendants_and_get_heads' g (Map.singleton c_bad 1, []) (Dequeue.pushBack Dequeue.empty c_bad)
 git_repo_calculate_descendants_and_get_heads' :: Ord a => Map a ([a], [a]) -> (Map a Int, [a]) -> Dequeue.BankersDequeue a -> (Map a Int, [a])
-git_repo_calculate_descendants_and_get_heads' g (descs, heads) queue =
+git_repo_calculate_descendants_and_get_heads' g (ranks, heads) queue =
     case Dequeue.popFront queue of
-        Nothing -> (descs, heads)
+        Nothing -> (ranks, heads)
         Just (c, queue') ->
             case Map.lookup c g of
                 -- TODO: this Nothing is an error, should be unreachable
-                Nothing -> git_repo_calculate_descendants_and_get_heads' g (descs, heads) queue'
+                Nothing -> git_repo_calculate_descendants_and_get_heads' g (ranks, heads) queue'
                 Just ([], _) ->
-                    git_repo_calculate_descendants_and_get_heads' g (descs, (c:heads)) queue'
+                    git_repo_calculate_descendants_and_get_heads' g (ranks, (c:heads)) queue'
                 Just (cps, _) ->
-                    case Map.lookup c descs of
+                    case Map.lookup c ranks of
                         -- TODO: again, weird error case
-                        Nothing -> git_repo_calculate_descendants_and_get_heads' g (descs, heads) queue'
+                        Nothing -> git_repo_calculate_descendants_and_get_heads' g (ranks, heads) queue'
                         Just rank ->
-                            let (descs', queue'') = update_descs_and_queue cps (rank+1) descs queue'
-                            --let    descs'  = update_descs cps rank descs
-                            --in let queue'' = push_back_list_to_queue cps queue'
-                            in  git_repo_calculate_descendants_and_get_heads' g (descs', heads) queue''
---git_repo_calculate_ancestors :: Map a ([a], [a]) -> (Map a Int, [a])
+                            let (ranks', queue'') = update_ranks_and_queue cps (rank+1) ranks queue'
+                            in  git_repo_calculate_descendants_and_get_heads' g (ranks', heads) queue''
+
+--update_ranks_and_queue :: Ord a => [a] -> Int -> Map a Int -> Dequeue.BankersDequeue a -> (Map a Int, Dequeue.BankersDequeue a)
+update_ranks_and_queue [] rank ranks q = (ranks, q)
+update_ranks_and_queue (cp:cps) rank ranks q =
+    case Map.lookup cp ranks of
+        Nothing -> update_ranks_and_queue cps rank (Map.insert cp rank ranks) (Dequeue.pushBack q cp)
+        Just _ -> update_ranks_and_queue cps rank ranks q
+
+-- TODO: possible speedup here, to end even earlier when calculating child ranks
+-- (instead of when we actually get to that child)
+git_repo_get_best_bisect_commit g ranks (h:hs) =
+    git_repo_get_best_bisect_commit' g ranks (h, 1) (push_back_list_to_queue (h:hs) Dequeue.empty :: Dequeue.BankersDequeue String)
+git_repo_get_best_bisect_commit' g ranks (c_best, c_best_rank) queue =
+    case Dequeue.popFront queue of
+        Nothing -> c_best
+        Just (c, queue') ->
+            case Map.lookup c ranks of
+                -- TODO: this Nothing is an error, should be unreachable
+                Nothing -> git_repo_get_best_bisect_commit' g ranks (c_best, c_best_rank) queue'
+                Just rank ->
+                    if rank <= floor ((fromIntegral (Map.size g))/2)
+                    then c
+                    else
+                        let (c_best', c_best_rank') = if rank > c_best_rank then (c, rank) else (c_best, c_best_rank)
+                        in case Map.lookup c g of
+                            -- TODO: this Nothing is an error, should be unreachable
+                            Nothing -> git_repo_get_best_bisect_commit' g ranks (c_best', c_best_rank') queue'
+                            Just (_, []) ->
+                                git_repo_get_best_bisect_commit' g ranks (c_best', c_best_rank') queue'
+                            Just (_, ccs) ->
+                                let (ranks', queue'') = calculate_final_ranks_and_queue ccs (rank+1) ranks queue'
+                                in  git_repo_get_best_bisect_commit' g ranks' (c_best', c_best_rank') queue''
+
+
 push_back_list_to_queue [] q = q
 push_back_list_to_queue (x:xs) q = push_back_list_to_queue xs (Dequeue.pushBack q x)
-update_descs cps rank descs = foldl (\ds c -> Map.insertWith (\new_value old_value -> old_value) c (rank+1) ds) descs cps
-
---update_descs_and_queue :: Ord a => [a] -> Int -> Map a Int -> Dequeue.BankersDequeue a -> (Map a Int, Dequeue.BankersDequeue a)
-update_descs_and_queue [] rank descs q = (descs, q)
-update_descs_and_queue (cp:cps) rank descs q =
-    case Map.lookup cp descs of
-        Nothing -> update_descs_and_queue cps rank (Map.insert cp rank descs) (Dequeue.pushBack q cp) -- RANK_AND_ADD_TO_QUEUE
-        Just _ -> update_descs_and_queue cps rank descs q
