@@ -103,7 +103,10 @@ instance FromJSON JSONMsgSolution where
         solution <- o .: "Solution"
         return JSONMsgSolution{..}
 
-data JSONPartScore = JSONPartScore (Map Text Int) deriving (Show, Generic, ToJSON, FromJSON)
+-- Weird stuff going on here: Aeson comes a built-in instance for Map Text
+-- a, and an instance for Maybe b. In particular, the Maybe instance gives you
+-- Just a for a regular value, or Nothing for a null. Very handy.
+data JSONPartScore = JSONPartScore (Map Text (Maybe Int)) deriving (Show, Generic, ToJSON, FromJSON)
 data JSONMsgScore = JSONMsgScore {
     score :: JSONPartScore
 } deriving (Show, Generic)
