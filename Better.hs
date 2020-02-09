@@ -35,17 +35,17 @@ git_repo_list_to_map' g ((c, cps):cs) = git_repo_list_to_map' (Map.insert c (cps
 
 -- Return the subgraph of a commit in the given repo by recursing through
 -- parents.
+-- The subgraph holds no references to commits outside the subgraph.
 --git_repo_subgraph :: Ord a => [a] -> a -> Map a ([a], [a], Int, Int) -> Map a ([a], [a], Int, Int)
-git_repo_subgraph c_good c_bad g = git_repo_subgraph' (Set.fromList c_good) g Set.empty [c_bad]
-git_repo_subgraph' _ g sg_c [] = foldl (map_copy_from_map g) Map.empty sg_c
-git_repo_subgraph' c_good g sg_c (c:cs) =
-    if   Set.member c c_good
-    then git_repo_subgraph' c_good g sg_c cs
-    else
-        case Map.lookup c g of
-            -- TODO unreachable
-            Nothing -> git_repo_subgraph' c_good g sg_c cs
-            Just (cps, _, _, _) -> git_repo_subgraph' c_good g (Set.insert c sg_c) (foldl (\xs x -> x:xs) cps cs)
+git_repo_subgraph c_good c_bad g = git_repo_subgraph' (Set.fromList c_good) g Map.empty [c_bad]
+git_repo_subgraph' _ g sg [] = sg
+git_repo_subgraph' c_good g sg (c:cs) =
+    case Map.lookup c g of
+        -- TODO unreachable
+        Nothing -> git_repo_subgraph' c_good g sg cs
+        Just (cps, ccs, ancs, dscs) ->
+            let cps' = filter (\c -> not (Set.member c c_good)) cps
+            in git_repo_subgraph' c_good g (Map.insert c (cps', ccs, ancs, dscs) sg) (foldl (flip $ (:)) cps' cs)
 
 -- Copy entry k from map m1 into map m2 if it exists (else just return m2).
 map_copy_from_map m1 m2 k =
