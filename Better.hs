@@ -6,7 +6,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Control.Monad (mapM_)
 import qualified Data.Dequeue as Dequeue
 
 git_repo_01 = [
@@ -37,12 +36,16 @@ git_repo_list_to_map' g ((c, cps):cs) = git_repo_list_to_map' (Map.insert c (cps
 -- Return the subgraph of a commit in the given repo by recursing through
 -- parents.
 --git_repo_subgraph :: Ord a => [a] -> a -> Map a ([a], [a], Int, Int) -> Map a ([a], [a], Int, Int)
-git_repo_subgraph c_good c_bad g = git_repo_subgraph' c_good g Set.empty [c_bad]
+git_repo_subgraph c_good c_bad g = git_repo_subgraph' (Set.fromList c_good) g Set.empty [c_bad]
 git_repo_subgraph' _ g sg_c [] = foldl (map_copy_from_map g) Map.empty sg_c
 git_repo_subgraph' c_good g sg_c (c:cs) =
-    case Map.lookup c g of
-        Just (cps, _, _, _) -> git_repo_subgraph' c_good g (Set.insert c sg_c) (foldr (:) cps cs)
-        Nothing -> git_repo_subgraph' c_good g sg_c cs
+    if   Set.member c c_good
+    then git_repo_subgraph' c_good g sg_c cs
+    else
+        case Map.lookup c g of
+            -- TODO unreachable
+            Nothing -> git_repo_subgraph' c_good g sg_c cs
+            Just (cps, _, _, _) -> git_repo_subgraph' c_good g (Set.insert c sg_c) (foldl (\xs x -> x:xs) cps cs)
 
 -- Copy entry k from map m1 into map m2 if it exists (else just return m2).
 map_copy_from_map m1 m2 k =
@@ -50,6 +53,7 @@ map_copy_from_map m1 m2 k =
         Just v -> Map.insert k v m2
         Nothing -> m2
 
+-- TODO: check I didn't fuck up here (likely)
 -- Calculate and record children for every commit in the graph.
 -- Worst case O(n^2) because we do operations for every parent of every commit.
 -- Lots of confusing trickery going on here, tons of folding.
@@ -58,9 +62,6 @@ git_repo_calculate_children g = Map.foldrWithKey git_repo_fold_children g g
 git_repo_fold_children c (cps, _, _, _) m = foldl (git_repo_add_child_to_parents c) m cps
 git_repo_add_child_to_parents c m cp = Map.update (git_repo_merge_children c) cp m
 git_repo_merge_children cc (cps, ccs, ancs, dscs) = Just (cps, (cc:ccs), ancs, dscs)
-
---revprepend_list [] y = y
---revprepend_list (x:xs) y = revprepend_list xs (x:y)
 
 --git_repo_calculate_descendants_and_get_heads :: a -> Map a ([a], [a]) -> (Map a Int, [a])
 --git_repo_calculate_descendants_and_get_heads' :: Ord a => Map a ([a], [a]) -> (Map a (Int, Int), [a]) -> Dequeue.BankersDequeue a -> (Map a (Int, Int), [a])
@@ -97,7 +98,6 @@ git_commit_set_ancs ancs' (cps, ccs, ancs, dscs) = Just (cps, ccs, ancs', dscs)
 -- (instead of when we actually get to that child)
 -- also: fucking hell christ
 git_repo_get_best_bisect_commit g cs =
-    --git_repo_get_best_bisect_commit' g Nothing (push_back_list_to_queue cs (Dequeue.empty :: Dequeue.BankersDequeue a))
     git_repo_get_best_bisect_commit' (foldl (\g' c -> Map.update (git_commit_set_ancs 1) c g') g cs) Nothing (push_back_list_to_queue cs (Dequeue.empty :: Dequeue.BankersDequeue a))
 git_repo_get_best_bisect_commit' g c_best queue =
     case Dequeue.popFront queue of
@@ -129,11 +129,6 @@ git_repo_get_best_bisect_commit' g c_best queue =
                                 let (g', queue'') = update_ancs_and_queue (ancs+1) ccs g queue'
                                 in  git_repo_get_best_bisect_commit' g' (Just (c_best_commit', c_best_rank')) queue''
 
---calculate_final_ranks_and_queue ccs (rank+1) ranks queue'
-
-push_back_list_to_queue [] q = q
-push_back_list_to_queue (x:xs) q = push_back_list_to_queue xs (Dequeue.pushBack q x)
-
 update_ancs_and_queue ancs [] g q = (g, q)
 update_ancs_and_queue ancs (c:cs) g q =
     case Map.lookup c g of
@@ -141,3 +136,6 @@ update_ancs_and_queue ancs (c:cs) g q =
         Nothing -> update_ancs_and_queue ancs cs g q
         Just (_, _, 0, _) -> update_ancs_and_queue ancs cs (Map.update (git_commit_set_ancs ancs) c g) (Dequeue.pushBack q c)
         otherwise -> update_ancs_and_queue ancs cs g q
+
+push_back_list_to_queue [] q = q
+push_back_list_to_queue (x:xs) q = push_back_list_to_queue xs (Dequeue.pushBack q x)
