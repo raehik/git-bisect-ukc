@@ -1,8 +1,9 @@
 -- TODO:
 --   * Map vs. HashMap (unclear) https://stackoverflow.com/questions/7894867/performant-haskell-hashed-structure
---
 
-module Main where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Algo where
 
 import JSON
 import Data.Map (Map)
@@ -10,11 +11,10 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Dequeue as Dequeue
-
-data GitCommitStatus
-    = GitCommitGood
-    | GitCommitBad
-    deriving (Show)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.UTF8 as BLU
 
 git_repo_01 = [
     ("a", []), -- good
@@ -150,7 +150,7 @@ push_back_list_to_queue (x:xs) q = push_back_list_to_queue xs (Dequeue.pushBack 
 
 --request_git_commit_status :: String -> IO GitCommitStatus
 request_git_commit_status c = do
-    putStr ("Is commit " ++ c ++ " good or bad? (g/b) > ")
+    BL.putStr $ BL.concat ["Is commit ", c, " good or bad? (g/b) > "]
     input <- getLine
     case input of
         "g" -> return GitCommitGood

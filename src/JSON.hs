@@ -9,15 +9,20 @@
 -- nicer style for Aeson records (thx https://artyom.me/aeson)
 {-# LANGUAGE RecordWildCards #-}
 
+-- LOL
+{-# LANGUAGE TemplateHaskell #-}
+
 module JSON where
 
 import GHC.Generics
 import Data.Aeson
+import Data.Aeson.TH
 import Data.Text (Text)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Char as Char
+import qualified Data.ByteString.Lazy as BS
 
 data GitCommitStatus
     = GitCommitGood
@@ -118,3 +123,23 @@ instance FromJSON JSONMsgScore where
     parseJSON = withObject "JSONMsgScore" $ \o -> do
         score <- o .: "Score"
         return JSONMsgScore{..}
+
+data JSONPartFileRepoRefAns = JSONPartFileRepoRefAns {
+    fra_bug :: Text,
+    fra_all_bad :: [Text]
+} deriving (Show, Generic)
+$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''JSONPartFileRepoRefAns)
+data JSONPartFileRepoProblem = JSONPartFileRepoProblem {
+    frp_name :: Text,
+    frp_good :: Text,
+    frp_bad :: Text,
+    frp_dag :: [JSONPartDagEntry]
+} deriving (Show, Generic)
+-- $(deriveJSON defaultOptions{fieldLabelModifier = drop (length "fr_")} ''JSONMsgFileRepo)
+$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''JSONPartFileRepoProblem)
+data JSONMsgFileRepo = JSONMsgFileRepo JSONPartFileRepoProblem JSONPartFileRepoRefAns deriving (Show, Generic, ToJSON, FromJSON)
+
+--decode_file :: FilePath -> IO (Maybe JSONMsgFileRepo)
+decode_file f = do
+    json <- BS.readFile f
+    return (decode json :: Maybe JSONMsgFileRepo)
