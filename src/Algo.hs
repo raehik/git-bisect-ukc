@@ -13,8 +13,6 @@ import qualified Data.Set as Set
 import qualified Data.Dequeue as Dequeue
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.UTF8 as BLU
 
 git_repo_01 = [
     ("a", []), -- good
@@ -148,9 +146,9 @@ update_ancs_and_queue ancs (c:cs) g q =
 push_back_list_to_queue [] q = q
 push_back_list_to_queue (x:xs) q = push_back_list_to_queue xs (Dequeue.pushBack q x)
 
---request_git_commit_status :: String -> IO GitCommitStatus
+--request_git_commit_status :: GitCommit -> IO GitCommitStatus
 request_git_commit_status c = do
-    BL.putStr $ BL.concat ["Is commit ", c, " good or bad? (g/b) > "]
+    T.putStr $ T.concat ["Is commit ", c, " good or bad? (g/b) > "]
     input <- getLine
     case input of
         "g" -> return GitCommitGood
@@ -158,7 +156,7 @@ request_git_commit_status c = do
         _ -> request_git_commit_status c
 
 git_bisect c_good c_bad l =
-    let first_graph = git_repo_calculate_children $ git_repo_subgraph c_good c_bad $ git_repo_list_to_map l
+    let first_graph = git_repo_calculate_children $ git_repo_subgraph c_good c_bad l
     in  git_bisect' c_good c_bad first_graph
 
 --git_bisect' :: [a] -> a -> Map a ([a], [a], Int, Int) -> Maybe a
@@ -177,3 +175,16 @@ git_bisect' c_good c_bad g =
                         case c_status of
                             GitCommitGood -> git_bisect' (c:c_good) c_bad g'
                             GitCommitBad -> git_bisect' c_good c g'
+
+git_select_bisect_commit c_good c_bad g =
+    let g' = git_repo_subgraph c_good c_bad g
+    in  if Map.size g' == 1
+        then Just c_bad
+        else
+            let    (g'', heads) = git_repo_calculate_descendants_and_get_heads g' c_bad
+            in git_repo_get_best_bisect_commit g'' heads
+
+-- git_json_repo_list_to_map :: (Num c, Num d) => [JSONPartDagEntry] -> Map GitCommit ([GitCommit], [GitCommit], c, d)
+git_json_repo_list_to_map jl = git_json_repo_list_to_map' Map.empty jl
+git_json_repo_list_to_map' g [] = g
+git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, [], 0, 0) g) jps

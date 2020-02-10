@@ -17,12 +17,15 @@ module JSON where
 import GHC.Generics
 import Data.Aeson
 import Data.Aeson.TH
-import Data.Text (Text)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Char as Char
-import qualified Data.ByteString.Lazy as BS
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
+
+type GitCommit = Text
 
 data GitCommitStatus
     = GitCommitGood
@@ -40,7 +43,7 @@ capitalize (ch:chars) = (Char.toUpper ch):chars
 decapitalize (ch:chars) = (Char.toLower ch):chars
 
 data JSONMsgUser = JSONMsgUser {
-    user :: Text
+    user :: GitCommit
 } deriving (Show, Generic)
 instance ToJSON JSONMsgUser where
     toJSON = genericToJSON defaultOptions {
@@ -51,15 +54,13 @@ instance FromJSON JSONMsgUser where
         user <- o .: "User"
         return JSONMsgUser{..}
 
-data JSONPartDagEntry = JSONPartDagEntry Text [Text] deriving (Show, Generic, ToJSON, FromJSON)
-
+data JSONPartDagEntry = JSONPartDagEntry GitCommit [GitCommit] deriving (Show, Generic, ToJSON, FromJSON)
 data JSONPartProblem = JSONPartProblem {
     name :: Text,
-    good :: Text,
-    bad :: Text,
+    good :: GitCommit,
+    bad :: GitCommit,
     dag :: [JSONPartDagEntry]
 } deriving (Show, Generic, ToJSON, FromJSON)
-
 data JSONMsgProblem = JSONMsgProblem {
     problem :: JSONPartProblem
 } deriving (Show, Generic)
@@ -73,7 +74,7 @@ instance FromJSON JSONMsgProblem where
         return JSONMsgProblem{..}
 
 data JSONMsgQuestion = JSONMsgQuestion {
-    question :: Text
+    question :: GitCommit
 } deriving (Show, Generic)
 instance ToJSON JSONMsgQuestion where
     toJSON = genericToJSON defaultOptions {
@@ -97,7 +98,7 @@ instance FromJSON JSONMsgAnswer where
         return JSONMsgAnswer{..}
 
 data JSONMsgSolution = JSONMsgSolution {
-    solution :: Text
+    solution :: GitCommit
 } deriving (Show, Generic)
 instance ToJSON JSONMsgSolution where
     toJSON = genericToJSON defaultOptions {
@@ -125,21 +126,13 @@ instance FromJSON JSONMsgScore where
         return JSONMsgScore{..}
 
 data JSONPartFileRepoRefAns = JSONPartFileRepoRefAns {
-    fra_bug :: Text,
-    fra_all_bad :: [Text]
+    fra_bug :: GitCommit,
+    fra_all_bad :: [GitCommit]
 } deriving (Show, Generic)
 $(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''JSONPartFileRepoRefAns)
-data JSONPartFileRepoProblem = JSONPartFileRepoProblem {
-    frp_name :: Text,
-    frp_good :: Text,
-    frp_bad :: Text,
-    frp_dag :: [JSONPartDagEntry]
-} deriving (Show, Generic)
--- $(deriveJSON defaultOptions{fieldLabelModifier = drop (length "fr_")} ''JSONMsgFileRepo)
-$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''JSONPartFileRepoProblem)
-data JSONMsgFileRepo = JSONMsgFileRepo JSONPartFileRepoProblem JSONPartFileRepoRefAns deriving (Show, Generic, ToJSON, FromJSON)
+data JSONMsgFileRepo = JSONMsgFileRepo JSONPartProblem JSONPartFileRepoRefAns deriving (Show, Generic, ToJSON, FromJSON)
 
 --decode_file :: FilePath -> IO (Maybe JSONMsgFileRepo)
 decode_file f = do
-    json <- BS.readFile f
+    json <- BL.readFile f
     return (decode json :: Maybe JSONMsgFileRepo)
