@@ -23,10 +23,10 @@ ws_app user_name conn = do
         Nothing -> T.putStrLn "error decoding JSON"
         Just pm ->
             let    pp = problem pm
-            in let g  = git_repo_calculate_children $ git_repo_subgraph [(good pp)] (bad pp) (git_json_repo_list_to_map (dag pp))
+            in let g  = git_repo_subgraph [(good pp)] (bad pp) (git_json_repo_list_to_map (dag pp))
             in
                 T.putStrLn "selecting bisect commit..." >>
-                case git_select_bisect_commit [(good pp)] (bad pp) g of
+                case git_repo_get_bisect_commit_calc_limit g (bad pp) 1 of
                     Nothing -> T.putStrLn "error finding bisect commit"
                     Just c -> T.putStrLn c
 
