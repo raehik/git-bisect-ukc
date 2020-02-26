@@ -14,30 +14,18 @@ import qualified Data.Dequeue as Dequeue
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
-git_repo_01 = [
-    ("a", []), -- good
-    ("b", ["a"]),
-    ("c", ["b"]),
-    ("d", ["c"]),
-    ("e", ["c", "d"]),
-    ("f", ["b", "d", "e"]),
-    ("g", ["f"]), -- bad
-    ("x", ["g"]) -- this should be filtered
-    ]
+-- git_json_repo_list_to_map :: (Num c, Num d) => [JSONPartDagEntry] -> Map GitCommit ([GitCommit], [GitCommit], c, d)
+git_json_repo_list_to_map jl = git_json_repo_list_to_map' Map.empty jl
+git_json_repo_list_to_map' g [] = g
+git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, Set.empty) g) jps
 
-git_repo_to_string g = Map.foldrWithKey (\k x ks -> ks ++ git_commit_to_string k x ++ "\n") "" g
-git_commit_to_string c (cps, ccs, ancs, dscs) =
-    c
-    ++ "\n  P: " ++ show cps
-    ++ "\n  C: " ++ show ccs
-    ++ "\n  ancs: " ++ show ancs
-    ++ "\n  dscs: " ++ show dscs
-
--- Initialise repo map (without calculating children etc. yet)
---git_repo_list_to_map :: Ord a => [(a, [a])] -> Map a ([a], [a], Int, Int)
-git_repo_list_to_map l = git_repo_list_to_map' Map.empty l
-git_repo_list_to_map' g [] = g
-git_repo_list_to_map' g ((c, cps):cs) = git_repo_list_to_map' (Map.insert c (cps, [], 0, 0) g) cs
+git_repo_show :: Map GitCommit ([GitCommit], Set GitCommit) -> String
+git_repo_show g = Map.foldrWithKey (\k x ks -> ks ++ git_commit_show k x ++ "\n") "" g
+git_commit_show c (c_parents, c_ancs) =
+    T.unpack c
+    ++ "\n  P: " ++ show c_parents
+    ++ "\n  ancs: " ++ show ancs_str
+    where ancs_str = if Set.null c_ancs then "<uncalculated>" else show c_ancs
 
 -- Return the subgraph of a commit in the given repo by recursing through
 -- parents.
@@ -188,13 +176,8 @@ git_select_bisect_commit c_good c_bad g =
             in git_repo_get_best_bisect_commit g'' heads
 
 data AncSetOrSched
-    | AncSet (Set GitCommit)
+    = AncSet (Set GitCommit)
     | AncSched [GitCommit]
-
--- git_json_repo_list_to_map :: (Num c, Num d) => [JSONPartDagEntry] -> Map GitCommit ([GitCommit], [GitCommit], c, d)
-git_json_repo_list_to_map jl = git_json_repo_list_to_map' Map.empty jl
-git_json_repo_list_to_map' g [] = g
-git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, Set.empty) g) jps
 
 git_repo_get_bisect_commit_calc_limit g c_head remaining_calcs =
     git_repo_get_bisect_commit_calc_limit' g (c_head, 0) [c_head] remaining_calcs
@@ -213,21 +196,25 @@ git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (
             case foldl (calculate_ancestors_or_schedule_calculations g) (AncSet (Set.singleton c_cur)) c_cur_ps of
                 AncSched c_sched -> git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (revprepend_list (c_cur:c_stack) c_sched) remaining_calcs
                 AncSet c_cur_ancs ->
-                    let    c_cur_rank = min (Set.size c_cur_ancs) ((Set.size g) - (Set.size c_cur_ancs))
+                    let    c_cur_rank = min (Set.size c_cur_ancs) ((Map.size g) - (Set.size c_cur_ancs))
                     in let (c_best_current', c_best_current_rank') = if c_cur_rank > c_best_current_rank then (c_cur, c_cur_rank) else (c_best_current, c_best_current_rank)
-                    in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs)
-                    in git_repo_get_bisect_commit_calc_limit' g' (c_best_current', c_best_current_rank') (remaining_calcs-1)
+                    in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs) g
+                    in     git_repo_get_bisect_commit_calc_limit' g' (c_best_current', c_best_current_rank') c_stack (remaining_calcs-1)
 
 calculate_ancestors_or_schedule_calculations g (AncSet cur_ancs) c =
     case Map.lookup c g of
         -- Nothing should probably be an error
         Nothing -> AncSet cur_ancs
-        Just (_, Set.empty) -> AncSched [c]
-        Just (_, c_ancs) -> AncSet (Set.union cur_ancs c_ancs)
+        Just (_, c_ancs) ->
+            if Set.null c_ancs
+            then AncSched [c]
+            else AncSet (Set.union cur_ancs c_ancs)
 
 calculate_ancestors_or_schedule_calculations g (AncSched cur_sched) c =
     case Map.lookup c g of
         -- Nothing should probably be an error
         Nothing -> AncSched cur_sched
-        Just (_, Set.empty) -> AncSched (c:cur_sched)
-        Just (_, _) -> AncSched cur_sched
+        Just (_, c_ancs) ->
+            if Set.null c_ancs
+            then AncSched (c:cur_sched)
+            else AncSched cur_sched
