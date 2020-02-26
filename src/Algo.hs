@@ -188,3 +188,19 @@ git_select_bisect_commit c_good c_bad g =
 git_json_repo_list_to_map jl = git_json_repo_list_to_map' Map.empty jl
 git_json_repo_list_to_map' g [] = g
 git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, [], 0, 0) g) jps
+
+git_repo_get_bisect_commit_calc_limit g c_head remaining_calcs =
+    git_repo_get_bisect_commit_calc_limit' g c_head (c_head, 0) [c_head] remaining_calcs
+
+-- Case: Whole graph calculated. Return best commit so far (== overall best).
+git_repo_get_bisect_commit_calc_limit' _ _ (c_best_current, _) [] _ = c_best_current
+
+-- Case: Calculations exhausted. Return best commit so far.
+git_repo_get_bisect_commit_calc_limit' _ _ (c_best_current, _) _  0 = c_best_current
+
+git_repo_get_bisect_commit_calc_limit' g c_head (c_best_current, c_best_current_rank) (c_cur:c_stack) remaining_calcs =
+    case Map.lookup c_cur g of
+        -- Nothing should be an error
+        Nothing -> git_repo_get_bisect_commit_calc_limit' g c_head (c_best_current, c_best_current_rank) c_stack remaining_calcs
+        Just (cps, _, _, _) ->
+            
