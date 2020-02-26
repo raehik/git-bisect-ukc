@@ -51,7 +51,10 @@ git_repo_subgraph' c_good g sg (c:cs) =
         Nothing -> git_repo_subgraph' c_good g sg cs
         Just (cps, ccs, ancs, dscs) ->
             let cps' = filter (\c -> not (Set.member c c_good)) cps
-            in git_repo_subgraph' c_good g (Map.insert c (cps', ccs, ancs, dscs) sg) (foldl (flip $ (:)) cps' cs)
+            in git_repo_subgraph' c_good g (Map.insert c (cps', ccs, ancs, dscs) sg) (revprepend_list cps' cs)
+
+-- Revprepend l2 onto l1.
+revprepend_list l1 l2 = foldl (flip (:)) l1 l2
 
 -- Copy entry k from map m1 into map m2 if it exists (else just return m2).
 map_copy_from_map m1 m2 k =
@@ -184,23 +187,47 @@ git_select_bisect_commit c_good c_bad g =
             let    (g'', heads) = git_repo_calculate_descendants_and_get_heads g' c_bad
             in git_repo_get_best_bisect_commit g'' heads
 
+data AncSetOrSched
+    | AncSet (Set GitCommit)
+    | AncSched [GitCommit]
+
 -- git_json_repo_list_to_map :: (Num c, Num d) => [JSONPartDagEntry] -> Map GitCommit ([GitCommit], [GitCommit], c, d)
 git_json_repo_list_to_map jl = git_json_repo_list_to_map' Map.empty jl
 git_json_repo_list_to_map' g [] = g
-git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, [], 0, 0) g) jps
+git_json_repo_list_to_map' g ((JSONPartDagEntry c cps):jps) = git_json_repo_list_to_map' (Map.insert c (cps, Set.empty) g) jps
 
 git_repo_get_bisect_commit_calc_limit g c_head remaining_calcs =
-    git_repo_get_bisect_commit_calc_limit' g c_head (c_head, 0) [c_head] remaining_calcs
+    git_repo_get_bisect_commit_calc_limit' g (c_head, 0) [c_head] remaining_calcs
 
 -- Case: Whole graph calculated. Return best commit so far (== overall best).
-git_repo_get_bisect_commit_calc_limit' _ _ (c_best_current, _) [] _ = c_best_current
+git_repo_get_bisect_commit_calc_limit' _ (c_best_current, _) [] _ = c_best_current
 
 -- Case: Calculations exhausted. Return best commit so far.
-git_repo_get_bisect_commit_calc_limit' _ _ (c_best_current, _) _  0 = c_best_current
+git_repo_get_bisect_commit_calc_limit' _ (c_best_current, _) _  0 = c_best_current
 
-git_repo_get_bisect_commit_calc_limit' g c_head (c_best_current, c_best_current_rank) (c_cur:c_stack) remaining_calcs =
+git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (c_cur:c_stack) remaining_calcs =
     case Map.lookup c_cur g of
-        -- Nothing should be an error
-        Nothing -> git_repo_get_bisect_commit_calc_limit' g c_head (c_best_current, c_best_current_rank) c_stack remaining_calcs
-        Just (cps, _, _, _) ->
-            
+        -- Nothing should probably be an error
+        Nothing -> git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) c_stack remaining_calcs
+        Just (c_cur_ps, _) ->
+            case foldl (calculate_ancestors_or_schedule_calculations g) (AncSet (Set.singleton c_cur)) c_cur_ps of
+                AncSched c_sched -> git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (revprepend_list (c_cur:c_stack) c_sched) remaining_calcs
+                AncSet c_cur_ancs ->
+                    let    c_cur_rank = min (Set.size c_cur_ancs) ((Set.size g) - (Set.size c_cur_ancs))
+                    in let (c_best_current', c_best_current_rank') = if c_cur_rank > c_best_current_rank then (c_cur, c_cur_rank) else (c_best_current, c_best_current_rank)
+                    in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs)
+                    in git_repo_get_bisect_commit_calc_limit' g' (c_best_current', c_best_current_rank') (remaining_calcs-1)
+
+calculate_ancestors_or_schedule_calculations g (AncSet cur_ancs) c =
+    case Map.lookup c g of
+        -- Nothing should probably be an error
+        Nothing -> AncSet cur_ancs
+        Just (_, Set.empty) -> AncSched [c]
+        Just (_, c_ancs) -> AncSet (Set.union cur_ancs c_ancs)
+
+calculate_ancestors_or_schedule_calculations g (AncSched cur_sched) c =
+    case Map.lookup c g of
+        -- Nothing should probably be an error
+        Nothing -> AncSched cur_sched
+        Just (_, Set.empty) -> AncSched (c:cur_sched)
+        Just (_, _) -> AncSched cur_sched
