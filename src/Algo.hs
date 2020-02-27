@@ -25,19 +25,31 @@ git_commit_show c (c_parents, c_ancs) =
     ++ "\n  ancs: " ++ show ancs_str
     where ancs_str = if Set.null c_ancs then "<uncalculated>" else show c_ancs
 
--- Return the subgraph of a commit in the given repo by recursing through
--- parents.
--- The subgraph holds no references to commits outside the subgraph.
+-- Return the relevant subgraph of a commit in the given repo. Relevant commits
+-- are ones which are in c_bad's ancestry, and not in any of c_good's commits'
+-- ancestry.
 --git_repo_subgraph :: Ord a => [a] -> a -> Map a ([a], [a], Int, Int) -> Map a ([a], [a], Int, Int)
-git_repo_subgraph c_good c_bad g = git_repo_subgraph' (Set.fromList c_good) g Map.empty [c_bad]
-git_repo_subgraph' _ g sg [] = sg
-git_repo_subgraph' c_good g sg (c:cs) =
+git_repo_subgraph c_good c_bad g =
+    let sg = git_repo_subgraph_from_bad (Set.fromList c_good) g Map.empty [c_bad]
+    in  git_repo_subgraph_remove_goods g sg c_good
+
+git_repo_subgraph_from_bad c_good g sg [] = sg
+git_repo_subgraph_from_bad c_good g sg (c:cs) =
     case Map.lookup c g of
         -- TODO unreachable
-        Nothing -> git_repo_subgraph' c_good g sg cs
-        Just (cps, ancs) ->
-            let cps' = filter (\c -> not (Set.member c c_good)) cps
-            in git_repo_subgraph' c_good g (Map.insert c (cps', ancs) sg) (revprepend_list cps' cs)
+        Nothing -> git_repo_subgraph_from_bad c_good g sg cs
+        Just (c_parents, c_ancs) ->
+            let c_parents' = filter (\c -> not (Set.member c c_good)) c_parents
+            in git_repo_subgraph_from_bad c_good g (Map.insert c (c_parents', c_ancs) sg) (revprepend_list c_parents' cs)
+
+git_repo_subgraph_remove_goods g sg [] = sg
+git_repo_subgraph_remove_goods g sg (c:cs) =
+    case Map.lookup c g of
+        -- TODO unreachable
+        Nothing -> git_repo_subgraph_remove_goods g sg cs
+        Just (c_parents, c_ancs) ->
+            let sg' = foldl (\g c -> Map.delete c g) sg c_parents
+            in  git_repo_subgraph_remove_goods g sg' (revprepend_list c_parents cs)
 
 -- Revprepend l2 onto l1.
 revprepend_list l1 l2 = foldl (flip (:)) l1 l2
@@ -64,10 +76,10 @@ git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (
                 AncSet c_cur_ancs ->
                     let c_cur_rank = min (Set.size c_cur_ancs) ((Map.size g) - (Set.size c_cur_ancs))
                     in
-                        if c_cur_rank >= floor (Map.size g)/2)
+                        if c_cur_rank >= floor ((fromIntegral (Map.size g)) / 2)
                         then Just c_cur
                         else
-                            in let (c_best_current', c_best_current_rank') = if c_cur_rank > c_best_current_rank then (c_cur, c_cur_rank) else (c_best_current, c_best_current_rank)
+                            let    (c_best_current', c_best_current_rank') = if c_cur_rank > c_best_current_rank then (c_cur, c_cur_rank) else (c_best_current, c_best_current_rank)
                             in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs) g
                             in     git_repo_get_bisect_commit_calc_limit' g' (c_best_current', c_best_current_rank') c_stack (remaining_calcs-1)
 
