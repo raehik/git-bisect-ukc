@@ -22,13 +22,21 @@ git_repo_show g = Map.foldrWithKey (\k x ks -> ks ++ git_commit_show k x ++ "\n"
 git_commit_show c (c_parents, c_ancs) =
     T.unpack c
     ++ "\n  P: " ++ show c_parents
-    ++ "\n  ancs: " ++ show ancs_str
+    ++ "\n  ancs: " ++ ancs_str
     where ancs_str = if Set.null c_ancs then "<uncalculated>" else show c_ancs
 
 -- Return the relevant subgraph of a commit in the given repo. Relevant commits
 -- are ones which are in c_bad's ancestry, and not in any of c_good's commits'
 -- ancestry.
---git_repo_subgraph :: Ord a => [a] -> a -> Map a ([a], [a], Int, Int) -> Map a ([a], [a], Int, Int)
+--
+-- This is split into two phases:
+--   * create a subgraph starting from c_bad
+--     * for efficiency, we also skip adding any commits in c_good (we'd remove
+--       them later, but this way we don't waste as much time on them)
+--   * remove the subgraphs of each commit in c_good
+--
+-- The second phase is less intuitive - please refer to the detailed algorithm
+-- discussion in the provided README.
 git_repo_subgraph c_good c_bad g =
     let sg = git_repo_subgraph_from_bad (Set.fromList c_good) g Map.empty [c_bad]
     in  git_repo_subgraph_remove_goods g sg c_good
@@ -62,30 +70,35 @@ git_repo_get_bisect_commit_calc_limit g c_head remaining_calcs =
     git_repo_get_bisect_commit_calc_limit' g (c_head, 0) [c_head] remaining_calcs
 
 -- Case: Whole graph calculated. Return best commit so far (== overall best).
-git_repo_get_bisect_commit_calc_limit' _ (c_best_current, _) [] _ = Just c_best_current
+git_repo_get_bisect_commit_calc_limit' g (c_best_current, _) [] _ = (Just c_best_current, g)
 
 -- Case: Calculations exhausted. Return best commit so far.
-git_repo_get_bisect_commit_calc_limit' _ (c_best_current, _) _  0 = Just c_best_current
+git_repo_get_bisect_commit_calc_limit' g (c_best_current, _) _  0 = (Just c_best_current, g)
 
 git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (c_cur:c_stack) remaining_calcs =
     case Map.lookup c_cur g of
-        Nothing -> Nothing
+        -- we were given a nonexistent commit, nothing to do
+        Nothing -> (Nothing, g)
         Just (c_cur_ps, _) ->
             case foldl (calculate_ancestors_or_schedule_calculations g) (AncSet (Set.singleton c_cur)) c_cur_ps of
+                -- missing parent ancestors, schedule them before scheduling
+                -- this commit again
                 AncSched c_sched -> git_repo_get_bisect_commit_calc_limit' g (c_best_current, c_best_current_rank) (revprepend_list (c_cur:c_stack) c_sched) remaining_calcs
+                -- successfully calculated ancestor list
                 AncSet c_cur_ancs ->
-                    let c_cur_rank = min (Set.size c_cur_ancs) ((Map.size g) - (Set.size c_cur_ancs))
+                    let    c_cur_rank = min (Set.size c_cur_ancs) ((Map.size g) - (Set.size c_cur_ancs))
+                    in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs) g
                     in
-                        if c_cur_rank >= floor ((fromIntegral (Map.size g)) / 2)
-                        then Just c_cur
-                        else
-                            let    (c_best_current', c_best_current_rank') = if c_cur_rank > c_best_current_rank then (c_cur, c_cur_rank) else (c_best_current, c_best_current_rank)
-                            in let g' = Map.insert c_cur (c_cur_ps, c_cur_ancs) g
-                            in     git_repo_get_bisect_commit_calc_limit' g' (c_best_current', c_best_current_rank') c_stack (remaining_calcs-1)
+                        if c_cur_rank > c_best_current_rank
+                        then
+                            -- found a better rank: check if it's ideal
+                            if c_cur_rank >= floor ((fromIntegral (Map.size g)) / 2)
+                            then (Just c_cur, g')
+                            else git_repo_get_bisect_commit_calc_limit' g' (c_cur, c_cur_rank) c_stack (remaining_calcs-1)
+                        else git_repo_get_bisect_commit_calc_limit' g' (c_best_current, c_best_current_rank) c_stack (remaining_calcs-1)
 
 calculate_ancestors_or_schedule_calculations g (AncSet cur_ancs) c =
     case Map.lookup c g of
-        -- Nothing should probably be an error
         Nothing -> AncSet cur_ancs
         Just (_, c_ancs) ->
             if Set.null c_ancs
@@ -94,7 +107,6 @@ calculate_ancestors_or_schedule_calculations g (AncSet cur_ancs) c =
 
 calculate_ancestors_or_schedule_calculations g (AncSched cur_sched) c =
     case Map.lookup c g of
-        -- Nothing should probably be an error
         Nothing -> AncSched cur_sched
         Just (_, c_ancs) ->
             if Set.null c_ancs
