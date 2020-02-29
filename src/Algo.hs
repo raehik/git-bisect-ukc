@@ -26,17 +26,19 @@ git_repo_remove_ancestors_of :: [GitCommit] -> GitGraph -> Maybe GitGraph
 git_repo_remove_ancestors_of [] g = Just g
 git_repo_remove_ancestors_of (cg:cgs) g = do
     gge <- Map.lookup cg g
-    cancs <- git_graph_entry_ancestors gge
-    git_repo_remove_ancestors_of cgs (map_delete_list (Set.toList cancs) g)
+    c_ancs <- git_graph_entry_ancestors gge
+    git_repo_remove_ancestors_of cgs (map_delete_list (Set.toList c_ancs) g)
 
 -- Subgraph on c and invalidate ancestors.
 -- (Filter good step 2.)
-git_repo_subgraph_invalidate_ancestors c g =
-    git_repo_dfs_map (\gge -> GitGraphEntry (git_graph_entry_parents gge) Nothing) g c
+git_repo_subgraph_invalidate_ancestors :: GitCommit -> GitGraph -> Maybe GitGraph
+git_repo_subgraph_invalidate_ancestors =
+    git_repo_dfs_map $ \gge -> GitGraphEntry (git_graph_entry_parents gge) Nothing
 
 -- Subgraph on c.
 -- (Filter bad.)
-git_repo_subgraph c g = git_repo_dfs_map id g c
+git_repo_subgraph :: GitCommit -> GitGraph -> Maybe GitGraph
+git_repo_subgraph = git_repo_dfs_map id
 
 revprepend_list :: Foldable t => [a] -> t a -> [a]
 revprepend_list = foldl (flip (:))
@@ -49,8 +51,8 @@ map_delete_list = flip $ foldl (flip Map.delete)
 --
 -- Returns Nothing if the subgraph part of the graph is invalid (e.g. commits
 -- referenced as parents but not present)
-git_repo_dfs_map :: (GitGraphEntry -> GitGraphEntry) -> GitGraph -> GitCommit -> Maybe GitGraph
-git_repo_dfs_map f g head = do
+git_repo_dfs_map :: (GitGraphEntry -> GitGraphEntry) -> GitCommit -> GitGraph -> Maybe GitGraph
+git_repo_dfs_map f head g = do
     gge <- Map.lookup head g
     dfs [head] (Map.singleton head (f gge))
     where
@@ -73,7 +75,39 @@ git_repo_dfs_map f g head = do
 git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
 git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
 
-git_repo_select_bisect_with_limit :: GitCommit -> Integer -> GitGraph -> Maybe (GitCommit, GitGraph)
-git_repo_select_bisect_with_limit head remaining_calcs g = Just (head, g)
-    git_repo_select_bisect_with_limit' (head, 0) remaining_calcs g (Set.singleton head) [head]
-git_repo_select_bisect_with_limit' head remaining_calcs g = Just (head, g)
+git_repo_select_bisect_with_limit :: Integer -> GitCommit -> GitGraph -> Maybe (GitCommit, GitGraph)
+git_repo_select_bisect_with_limit remaining_calcs head g =
+    git_repo_select_bisect_with_limit' remaining_calcs [head] g (Set.singleton head) (head, 0)
+git_repo_select_bisect_with_limit' remaining_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank) = Nothing
+
+-- Case: Graph traversal ended. Return best commit so far (== overall best).
+git_repo_select_bisect_with_limit' _ [] g _ (c_best_cur, _) = Just (c_best_cur, g)
+
+-- Case: Calculations exhausted. Return best commit so far.
+git_repo_select_bisect_with_limit' 0 _  g _ (c_best_cur, _) = Just (c_best_cur, g)
+
+git_repo_select_bisect_with_limit' remaining_calcs (c_cur:c_stack) g c_checked (c_best_cur, c_best_cur_rank) =
+    if Set.member c_cur c_checked then
+        git_repo_select_bisect_with_limit' remaining_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank)
+    else do
+        (cps, c_ancs) <- Map.lookup c_cur g
+        case c_ancs of
+            Nothing ->
+                NEED_CALC
+            Just c_ancs' ->
+                let    c_rank = min (Set.size c_ancs') ((Map.size g) - (Set.size c_ancs')
+                in let graph_size_half = fromIntegral (Map.size g) / 2
+                in let (c_best_cur', c_best_cur_rank') =
+                        if c_rank > c_best_cur_rank
+                        then (c_cur, c_rank)
+                        else (c_best_cur, c_best_cur_rank)
+                in let c_stack' =
+                        if c_rank > ceiling graph_size_half
+                        then revprepend_list cps c_stack
+                        else c_stack
+                in
+                    if c_rank > c_best_cur_rank then
+                        if c_rank >= floor graph_size_half then
+                            Just (c_cur, g)
+                        else git_repo_select_bisect_with_limit' remaining_calcs c_stack' g c_checked (c_best_cur', c_best_cur_rank')
+                    else git_repo_select_bisect_with_limit' remaining_calcs c_stack' g c_checked (c_best_cur', c_best_cur_rank')
