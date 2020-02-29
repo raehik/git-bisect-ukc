@@ -67,3 +67,13 @@ git_repo_dfs_map f g head = do
                         (\gge -> Just (Map.insert cp (f gge) sg, (cp:cs)))
                 else Just (sg, cs)
             dfs_add_unseen cs' sg' cps
+
+-- Convert a repo in JSON representation to a GitGraph.
+-- Makes no validity checks, and does not calculate ancestors.
+git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
+git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
+
+git_repo_select_bisect_with_limit :: GitCommit -> Integer -> GitGraph -> Maybe (GitCommit, GitGraph)
+git_repo_select_bisect_with_limit head remaining_calcs g = Just (head, g)
+    git_repo_select_bisect_with_limit' (head, 0) remaining_calcs g (Set.singleton head) [head]
+git_repo_select_bisect_with_limit' head remaining_calcs g = Just (head, g)
