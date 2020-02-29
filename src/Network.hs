@@ -33,6 +33,7 @@ client_solve_problem conn prob =
     case c_first_bad of
         Nothing -> putStrLn "could not determine first bad commit"
         Just c_first_bad' -> do
+            print c_first_bad'
             WS.sendTextData conn $ encode (JSONMsgSolution c_first_bad')
             msg_score <- WS.receiveData conn :: IO ByteString
             case decode msg_score :: Maybe JSONMsgScore of

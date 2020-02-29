@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 executable git-bisect
   main-is:             Main.hs
-  other-modules:       Algo JSON Network
+  other-modules:       Data Algo JSON Network
   -- other-extensions:
   build-depends:       base >=4.12,
                        containers >=0.6,

@@ -14,6 +14,8 @@
 
 module JSON where
 
+import Data
+
 import GHC.Generics
 import Data.Aeson
 import Data.Aeson.TH
@@ -24,8 +26,6 @@ import qualified Data.Text as T
 import qualified Data.Char as Char
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-
-type GitCommit = Text
 
 data GitCommitStatus
     = GitCommitGood
