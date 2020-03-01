@@ -8,6 +8,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Foldable
 
 type GitGraph = Map GitCommit GitGraphEntry
 data GitGraphEntry = GitGraphEntry {
@@ -66,7 +67,7 @@ git_repo_dfs_map f head g = do
             (sg', cs') <-
                 if Map.notMember cp sg then
                     Map.lookup cp g >>=
-                        (\gge -> Just (Map.insert cp (f gge) sg, (cp:cs)))
+                        (\gge -> Just ((Map.insert cp (f gge) sg), (cp:cs)))
                 else Just (sg, cs)
             dfs_add_unseen cs' sg' cps
 
@@ -76,9 +77,8 @@ git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
 git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
 
 git_repo_select_bisect_with_limit :: Integer -> GitCommit -> GitGraph -> Maybe (GitCommit, GitGraph)
-git_repo_select_bisect_with_limit remaining_calcs head g =
-    git_repo_select_bisect_with_limit' remaining_calcs [head] g (Set.singleton head) (head, 0)
-git_repo_select_bisect_with_limit' remaining_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank) = Nothing
+git_repo_select_bisect_with_limit rem_calcs head g =
+    git_repo_select_bisect_with_limit' rem_calcs [head] g (Set.singleton head) (head, 0)
 
 -- Case: Graph traversal ended. Return best commit so far (== overall best).
 git_repo_select_bisect_with_limit' _ [] g _ (c_best_cur, _) = Just (c_best_cur, g)
@@ -86,16 +86,34 @@ git_repo_select_bisect_with_limit' _ [] g _ (c_best_cur, _) = Just (c_best_cur, 
 -- Case: Calculations exhausted. Return best commit so far.
 git_repo_select_bisect_with_limit' 0 _  g _ (c_best_cur, _) = Just (c_best_cur, g)
 
-git_repo_select_bisect_with_limit' remaining_calcs (c_cur:c_stack) g c_checked (c_best_cur, c_best_cur_rank) =
+git_repo_select_bisect_with_limit' rem_calcs (c_cur:c_stack) g c_checked (c_best_cur, c_best_cur_rank) =
     if Set.member c_cur c_checked then
-        git_repo_select_bisect_with_limit' remaining_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank)
+        -- already calculated+checked, skip
+        git_repo_select_bisect_with_limit' rem_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank)
     else do
-        (cps, c_ancs) <- Map.lookup c_cur g
-        case c_ancs of
-            Nothing ->
-                NEED_CALC
-            Just c_ancs' ->
-                let    c_rank = min (Set.size c_ancs') ((Map.size g) - (Set.size c_ancs')
+        gge <- Map.lookup c_cur g
+        let cps = git_graph_entry_parents gge
+        case git_graph_entry_ancestors gge of
+            Nothing -> do
+                -- ancestors not yet calculated
+                ancs_or_sched <- foldlM (calculate_ancs_or_sched g) (AncSet (Set.singleton c_cur)) cps
+                case ancs_or_sched of
+                    -- missing some parent ancestors, schedule them then
+                    -- reschedule current commit
+                    AncSched c_sched ->
+                        let c_stack' = revprepend_list (c_cur:c_stack) c_sched
+                        in  git_repo_select_bisect_with_limit' rem_calcs c_stack' g c_checked (c_best_cur, c_best_cur_rank)
+                    -- successfully calculated ancestors: reschedule ourselves,
+                    -- we check in the other case (shouldn't be a big slowdown,
+                    -- keeps code much neater)
+                    AncSet c_ancs ->
+                        let g' = Map.insert c_cur (GitGraphEntry cps (Just c_ancs)) g
+                        in  git_repo_select_bisect_with_limit' rem_calcs (c_cur:c_stack) g' c_checked (c_best_cur, c_best_cur_rank)
+            Just c_ancs ->
+                -- ancestors already calculated
+                let    c_checked' = Set.insert c_cur c_checked
+                in let rem_calcs' = rem_calcs-1
+                in let c_rank = min (Set.size c_ancs) ((Map.size g) - (Set.size c_ancs))
                 in let graph_size_half = fromIntegral (Map.size g) / 2
                 in let (c_best_cur', c_best_cur_rank') =
                         if c_rank > c_best_cur_rank
@@ -107,7 +125,25 @@ git_repo_select_bisect_with_limit' remaining_calcs (c_cur:c_stack) g c_checked (
                         else c_stack
                 in
                     if c_rank > c_best_cur_rank then
+                        -- better rank found
                         if c_rank >= floor graph_size_half then
+                            -- it's an ideal bisect commit: end early
                             Just (c_cur, g)
-                        else git_repo_select_bisect_with_limit' remaining_calcs c_stack' g c_checked (c_best_cur', c_best_cur_rank')
-                    else git_repo_select_bisect_with_limit' remaining_calcs c_stack' g c_checked (c_best_cur', c_best_cur_rank')
+                        else git_repo_select_bisect_with_limit' rem_calcs' c_stack' g c_checked' (c_best_cur', c_best_cur_rank')
+                    else git_repo_select_bisect_with_limit' rem_calcs' c_stack' g c_checked' (c_best_cur', c_best_cur_rank')
+
+data EitherAncSetOrSched
+    = AncSet (Set GitCommit)
+    | AncSched [GitCommit]
+
+calculate_ancs_or_sched g (AncSet cur_ancs) c = do
+    gge <- Map.lookup c g
+    case git_graph_entry_ancestors gge of
+        Nothing -> Just $ AncSched [c]
+        Just c_ancs -> Just $ AncSet (Set.union c_ancs cur_ancs)
+
+calculate_ancs_or_sched g (AncSched cur_sched) c = do
+    gge <- Map.lookup c g
+    case git_graph_entry_ancestors gge of
+        Nothing -> Just $ AncSched (c:cur_sched)
+        Just c_ancs -> Just $ AncSched cur_sched
