@@ -44,8 +44,7 @@ client_solve_problem conn prob =
 client_question_loop :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> IO (Maybe GitCommit)
 client_question_loop conn c_good c_bad g
     | Map.size g == 1 = return (Just c_bad)
-    | otherwise = do
-        print $ Map.size g
+    | otherwise =
         case git_repo_select_bisect_with_limit 100000000 c_bad g of
             Nothing -> return Nothing -- bad graph
             Just (c_bisect, g') -> do
@@ -53,7 +52,8 @@ client_question_loop conn c_good c_bad g
                 msg_answer <- WS.receiveData conn :: IO ByteString
                 case decode msg_answer :: Maybe JSONMsgAnswer of
                     Nothing -> return Nothing -- fucked JSON
-                    Just c_status ->
+                    Just c_status -> do
+                        putStrLn $ (show $ Map.size g) ++ " " ++ (show $ answer c_status) ++ " " ++ (show c_bisect)
                         case filter_graph c_good c_bad g' c_bisect (answer c_status) of
                             Nothing -> return Nothing -- fucked graph
                             Just (c_good', c_bad', g'') -> client_question_loop conn c_good' c_bad' g''
