@@ -13,7 +13,7 @@ for presenting all that - no need to actually read it.
 ## Algorithm
 tl;dr At every step:
 
-  * filter the graph to only the commits we care about
+  * filter irrelevant commits (ones that can't be the first bad commit)
   * select a bisect commit by calculating commit ranks until we
     1. find an ideal bisect commit,
     2. get to the end of the graph, or

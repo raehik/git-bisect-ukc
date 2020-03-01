@@ -30,6 +30,8 @@ git_repo_remove_ancestors_of (cg:cgs) g = do
     c_ancs <- git_graph_entry_ancestors gge
     git_repo_remove_ancestors_of cgs (map_delete_list (Set.toList c_ancs) g)
 
+-- TODO: need to generalise remove to do a DFS where ancestors aren't calculated
+
 -- Subgraph on c and invalidate ancestors.
 -- (Filter good step 2.)
 git_repo_subgraph_invalidate_ancestors :: GitCommit -> GitGraph -> Maybe GitGraph
@@ -46,6 +48,23 @@ revprepend_list = foldl (flip (:))
 
 map_delete_list :: (Foldable t, Ord k) => t k -> Map k a -> Map k a
 map_delete_list = flip $ foldl (flip Map.delete)
+
+git_repo_dfs_foldl :: (GitGraph -> GitCommit -> GitGraphEntry -> (GitGraph, [GitCommit])) -> GitGraph -> GitCommit -> GitGraph -> Maybe GitGraph
+git_repo_dfs_foldl f g_fold head g =
+    dfs g_fold [head] (Set.singleton head)
+    where
+        dfs g_fold [] c_seen = Just g_fold
+        dfs g_fold (c:cs) c_seen = do
+            cv <- Map.lookup c g
+            let (g_fold', c_skip) = f g_fold c cv
+            let c_seen' = foldl (flip Set.insert) c_seen c_skip
+            let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
+            dfs g_fold' cs' c_seen''
+
+        dfs_add_unseen (cs, c_seen) c =
+            if Set.notMember c c_seen
+            then (c:cs, Set.insert c c_seen)
+            else (cs, c_seen)
 
 -- Apply a function to each GitCommit in a GitGraph, traversing via depth-first
 -- search.

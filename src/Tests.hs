@@ -2,8 +2,12 @@
 
 module Tests where
 
+import Data
 import Algo
 import Main
+import qualified Data.Text as T
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 git_repo_ex_meh = [
     ("a", []), -- good
