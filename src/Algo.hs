@@ -16,6 +16,29 @@ data GitGraphEntry = GitGraphEntry {
     git_graph_entry_ancestors :: Maybe (Set GitCommit)
 } deriving (Show)
 
+-- Also invalidates ancestors.
+f_lookup_fix c g = do
+    GitGraphEntry p _ <- Map.lookup c g
+    Just $ GitGraphEntry (filter (flip Map.member g) p) Nothing
+
+f_fold_del g c (GitGraphEntry p Nothing) = (Map.delete c g, [])
+f_fold_del g c (GitGraphEntry p (Just ancs)) = (foldl (flip Map.delete) g ancs, p)
+f_fold_sub g c gge = (Map.insert c gge g, [])
+
+git_repo_sg_good c_g c_b g = do
+    git_repo_dfs_foldl Map.lookup f_fold_del g c_g g >>=
+        git_repo_dfs_foldl f_lookup_fix f_fold_sub Map.empty c_b
+
+git_repo_sg_bad c g = git_repo_dfs_foldl Map.lookup (\g c gge -> (Map.insert c gge g, [])) Map.empty c g
+
+--dfs_step :: Set GitCommit -> [GitCommit] -> GitGraph -> Maybe ([GitCommit], Set GitCommit)
+--dfs_step c_seen [] g = Just ([], c_seen)
+--dfs_step c_seen (c:cs) g = do
+--    GitGraphEntry p ancs <- Map.lookup c g
+--    foldl dfs_step_add_parents (g, c_seen) p
+--    where
+--        dfs_step_add_parents g 
+
 -- Remove ancestors of the provided commits from the provided graph.
 --
 -- Returns Nothing if the graph was invalid, or if the commits to remove did not
@@ -49,19 +72,17 @@ revprepend_list = foldl (flip (:))
 map_delete_list :: (Foldable t, Ord k) => t k -> Map k a -> Map k a
 map_delete_list = flip $ foldl (flip Map.delete)
 
-git_repo_dfs_foldl :: (GitGraph -> GitCommit -> GitGraphEntry -> (GitGraph, [GitCommit])) -> GitGraph -> GitCommit -> GitGraph -> Maybe GitGraph
-git_repo_dfs_foldl f g_fold head g =
+git_repo_dfs_foldl :: (GitCommit -> GitGraph -> Maybe GitGraphEntry) -> (GitGraph -> GitCommit -> GitGraphEntry -> (GitGraph, [GitCommit])) -> GitGraph -> GitCommit -> GitGraph -> Maybe GitGraph
+git_repo_dfs_foldl f_lookup f_fold g_fold head g =
     dfs g_fold [head] (Set.singleton head)
     where
         dfs g_fold [] c_seen = Just g_fold
-        dfs g_fold (c:cs) c_seen =
-            case Map.lookup c g of
-                Nothing -> dfs g_fold cs c_seen
-                Just cv ->
-                    let    (g_fold', c_skip) = f g_fold c cv
-                    in let c_seen' = foldl (flip Set.insert) c_seen c_skip
-                    in let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
-                    in     dfs g_fold' cs' c_seen''
+        dfs g_fold (c:cs) c_seen = do
+            cv <- f_lookup c g
+            let (g_fold', c_skip) = f_fold g_fold c cv
+            let c_seen' = foldl (flip Set.insert) c_seen c_skip
+            let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
+            dfs g_fold' cs' c_seen''
 
         dfs_add_unseen (cs, c_seen) c =
             if Set.notMember c c_seen

@@ -42,8 +42,9 @@ instance ToJSON GitCommitStatus where
 capitalize (ch:chars) = (Char.toUpper ch):chars
 decapitalize (ch:chars) = (Char.toLower ch):chars
 
+type JSONPartUser = [Text]
 data JSONMsgUser = JSONMsgUser {
-    user :: GitCommit
+    user :: JSONPartUser
 } deriving (Show, Generic)
 instance ToJSON JSONMsgUser where
     toJSON = genericToJSON defaultOptions {

@@ -9,6 +9,7 @@ import Algo
 import Data.Aeson (encode, decode)
 import qualified Network.WebSockets as WS
 import Data.ByteString.Lazy (ByteString)
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Map (Map)
@@ -16,11 +17,18 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
-client_init :: String -> WS.ClientApp ()
-client_init user_name conn = do
+newtype NetClientAuth = NetClientAuth {
+    net_client_auth_user :: Text,
+    net_client_auth_token :: Text
+} deriving (Show)
+
+net_client :: NetClientAuth -> 
+
+client_init :: Text -> Text -> WS.ClientApp ()
+client_init srvauth_user srvauth_token conn = do
     putStrLn "potentially connected"
     putStrLn "sending user message..."
-    WS.sendTextData conn $ encode (JSONMsgUser (T.pack user_name))
+    WS.sendTextData conn $ encode $ JSONMsgUser [srvauth_user, srvauth_token]
     putStrLn "receiving problem message..."
     msg_prob <- WS.receiveData conn :: IO ByteString
     putStrLn "decoding JSON..."
@@ -66,4 +74,4 @@ filter_graph c_good c_bad g c_bisect GitCommitBad = do
     g' <- git_repo_subgraph c_bisect g
     Just (c_good, c_bisect, g')
 
-ws_run = WS.runClient "129.12.44.229" 1234 "/" (client_init "bo207")
+ws_run = WS.runClient "129.12.44.229" 1234 "/" $ client_init (T.pack "bo207") (T.pack "49ea39ac")
