@@ -12,10 +12,9 @@
 -- LOL
 {-# LANGUAGE TemplateHaskell #-}
 
-module JSON where
+module GitBisect.Network.JSON where
 
-import Data
-
+import GitBisect.Types
 import GHC.Generics
 import Data.Aeson
 import Data.Aeson.TH
@@ -137,3 +136,8 @@ data JSONMsgFileRepo = JSONMsgFileRepo JSONPartProblem JSONPartFileRepoRefAns de
 decode_file f = do
     json <- BL.readFile f
     return (decode json :: Maybe JSONMsgFileRepo)
+
+-- Convert a repo in JSON representation to a GitGraph.
+-- Makes no validity checks, and does not calculate ancestors.
+git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
+git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty

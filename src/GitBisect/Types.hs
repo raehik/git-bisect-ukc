@@ -7,6 +7,6 @@ import Data.Text (Text)
 type GitCommit = Text
 type GitGraph = Map GitCommit GitGraphEntry
 data GitGraphEntry = GitGraphEntry {
-    git_graph_entry_parents :: [GitCommit],
-    git_graph_entry_ancestors :: Maybe (Set GitCommit)
+    gitGraphEntryParents :: [GitCommit],
+    gitGraphEntryAncestors :: Maybe (Set GitCommit)
 } deriving (Show)

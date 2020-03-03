@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 82b63d042ad23ac3898449f2615930294d2c8e67bbe8fea79af7a2259cbe2200
+-- hash: b421054c1de71be1321d50584e30c4628886df721008a228689c0489113a4cf0
 
 name:           git-bisect
 version:        0.3.0
@@ -17,10 +17,13 @@ license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
-    ChangeLog.md
+    CHANGELOG.md
 
 library
   exposed-modules:
+      GitBisect.Algo
+      GitBisect.Network.Client
+      GitBisect.Network.JSON
       GitBisect.Types
   other-modules:
       Paths_git_bisect
@@ -29,6 +32,7 @@ library
   build-depends:
       aeson >=1.4
     , base >=4.7 && <5
+    , bytestring >=0.10
     , containers >=0.6
     , text >=1.2
     , websockets >=0.12
@@ -44,6 +48,7 @@ executable git-bisect-exe
   build-depends:
       aeson >=1.4
     , base >=4.7 && <5
+    , bytestring >=0.10
     , containers >=0.6
     , git-bisect
     , text >=1.2
@@ -61,6 +66,7 @@ test-suite git-bisect-test
   build-depends:
       aeson >=1.4
     , base >=4.7 && <5
+    , bytestring >=0.10
     , containers >=0.6
     , git-bisect
     , text >=1.2

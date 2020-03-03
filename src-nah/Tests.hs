@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Tests where
+module GitBisect.Tests where
 
 import Data
 import Algo

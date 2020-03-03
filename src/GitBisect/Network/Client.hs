@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Network where
+module GitBisect.Network.Client where
 
-import Data
-import JSON
-import Algo
+import GitBisect.Types
+import GitBisect.Network.JSON
+import GitBisect.Algo
 
 import Data.Aeson (encode, decode)
 import qualified Network.WebSockets as WS
@@ -17,18 +17,20 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
-newtype NetClientAuth = NetClientAuth {
-    net_client_auth_user :: Text,
-    net_client_auth_token :: Text
+data ClientData = ClientData {
+    clientDataAuth :: ClientAuth
 } deriving (Show)
 
-net_client :: NetClientAuth -> 
+data ClientAuth = ClientAuth {
+    clientAuthUser :: Text,
+    clientAuthToken :: Text
+} deriving (Show)
 
-client_init :: Text -> Text -> WS.ClientApp ()
-client_init srvauth_user srvauth_token conn = do
+clientInit :: ClientData -> WS.ClientApp ()
+clientInit clientData conn = do
     putStrLn "potentially connected"
     putStrLn "sending user message..."
-    WS.sendTextData conn $ encode $ JSONMsgUser [srvauth_user, srvauth_token]
+    WS.sendTextData conn $ encode $ JSONMsgUser [(T.pack "bo207", T.pack "no")]
     putStrLn "receiving problem message..."
     msg_prob <- WS.receiveData conn :: IO ByteString
     putStrLn "decoding JSON..."
@@ -74,4 +76,5 @@ filter_graph c_good c_bad g c_bisect GitCommitBad = do
     g' <- git_repo_subgraph c_bisect g
     Just (c_good, c_bisect, g')
 
-ws_run = WS.runClient "129.12.44.229" 1234 "/" $ client_init (T.pack "bo207") (T.pack "49ea39ac")
+ws_run = WS.runClient "129.12.44.229" 1234 "/" $ clientInit $ clientData_bo207
+clientData_bo207 = ClientData $ ClientAuth (T.pack "bo207") (T.pack "49ea39ac")

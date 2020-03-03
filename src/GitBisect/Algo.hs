@@ -1,20 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Algo where
+module GitBisect.Algo where
 
-import Data
-import JSON
+import GitBisect.Types
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Foldable
-
-type GitGraph = Map GitCommit GitGraphEntry
-data GitGraphEntry = GitGraphEntry {
-    git_graph_entry_parents :: [GitCommit],
-    git_graph_entry_ancestors :: Maybe (Set GitCommit)
-} deriving (Show)
 
 -- Also invalidates ancestors.
 f_lookup_fix c g = do
@@ -50,7 +43,7 @@ git_repo_remove_ancestors_of :: [GitCommit] -> GitGraph -> Maybe GitGraph
 git_repo_remove_ancestors_of [] g = Just g
 git_repo_remove_ancestors_of (cg:cgs) g = do
     gge <- Map.lookup cg g
-    c_ancs <- git_graph_entry_ancestors gge
+    c_ancs <- gitGraphEntryAncestors gge
     git_repo_remove_ancestors_of cgs (map_delete_list (Set.toList c_ancs) g)
 
 -- TODO: need to generalise remove to do a DFS where ancestors aren't calculated
@@ -59,7 +52,7 @@ git_repo_remove_ancestors_of (cg:cgs) g = do
 -- (Filter good step 2.)
 git_repo_subgraph_invalidate_ancestors :: GitCommit -> GitGraph -> Maybe GitGraph
 git_repo_subgraph_invalidate_ancestors =
-    git_repo_dfs_map $ \gge -> GitGraphEntry (git_graph_entry_parents gge) Nothing
+    git_repo_dfs_map $ \gge -> GitGraphEntry (gitGraphEntryParents gge) Nothing
 
 -- Subgraph on c.
 -- (Filter bad.)
@@ -81,7 +74,7 @@ git_repo_dfs_foldl f_lookup f_fold g_fold head g =
             cv <- f_lookup c g
             let (g_fold', c_skip) = f_fold g_fold c cv
             let c_seen' = foldl (flip Set.insert) c_seen c_skip
-            let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
+            let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (gitGraphEntryParents cv)
             dfs g_fold' cs' c_seen''
 
         dfs_add_unseen (cs, c_seen) c =
@@ -102,7 +95,7 @@ git_repo_dfs_map f head g = do
         dfs [] sg = Just sg
         dfs (c:cs) sg = do
             cv <- Map.lookup c sg
-            (sg', cs') <- dfs_add_unseen cs sg (git_graph_entry_parents cv)
+            (sg', cs') <- dfs_add_unseen cs sg (gitGraphEntryParents cv)
             dfs cs' sg'
         dfs_add_unseen cs sg [] = Just (sg, cs)
         dfs_add_unseen cs sg (cp:cps) = do
@@ -112,11 +105,6 @@ git_repo_dfs_map f head g = do
                         (\gge -> Just ((Map.insert cp (f gge) sg), (cp:cs)))
                 else Just (sg, cs)
             dfs_add_unseen cs' sg' cps
-
--- Convert a repo in JSON representation to a GitGraph.
--- Makes no validity checks, and does not calculate ancestors.
-git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
-git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
 
 git_repo_select_bisect_with_limit :: Integer -> GitCommit -> GitGraph -> Maybe (GitCommit, GitGraph)
 git_repo_select_bisect_with_limit rem_calcs head g =
@@ -134,8 +122,8 @@ git_repo_select_bisect_with_limit' rem_calcs (c_cur:c_stack) g c_checked (c_best
         git_repo_select_bisect_with_limit' rem_calcs c_stack g c_checked (c_best_cur, c_best_cur_rank)
     else do
         gge <- Map.lookup c_cur g
-        let cps = git_graph_entry_parents gge
-        case git_graph_entry_ancestors gge of
+        let cps = gitGraphEntryParents gge
+        case gitGraphEntryAncestors gge of
             Nothing -> do
                 -- ancestors not yet calculated
                 ancs_or_sched <- foldlM (calculate_ancs_or_sched g) (AncSet (Set.singleton c_cur)) cps
@@ -180,12 +168,12 @@ data EitherAncSetOrSched
 
 calculate_ancs_or_sched g (AncSet cur_ancs) c = do
     gge <- Map.lookup c g
-    case git_graph_entry_ancestors gge of
+    case gitGraphEntryAncestors gge of
         Nothing -> Just $ AncSched [c]
         Just c_ancs -> Just $ AncSet (Set.union c_ancs cur_ancs)
 
 calculate_ancs_or_sched g (AncSched cur_sched) c = do
     gge <- Map.lookup c g
-    case git_graph_entry_ancestors gge of
+    case gitGraphEntryAncestors gge of
         Nothing -> Just $ AncSched (c:cur_sched)
         Just c_ancs -> Just $ AncSched cur_sched
