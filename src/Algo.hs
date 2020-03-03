@@ -54,12 +54,14 @@ git_repo_dfs_foldl f g_fold head g =
     dfs g_fold [head] (Set.singleton head)
     where
         dfs g_fold [] c_seen = Just g_fold
-        dfs g_fold (c:cs) c_seen = do
-            cv <- Map.lookup c g
-            let (g_fold', c_skip) = f g_fold c cv
-            let c_seen' = foldl (flip Set.insert) c_seen c_skip
-            let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
-            dfs g_fold' cs' c_seen''
+        dfs g_fold (c:cs) c_seen =
+            case Map.lookup c g of
+                Nothing -> dfs g_fold cs c_seen
+                Just cv ->
+                    let    (g_fold', c_skip) = f g_fold c cv
+                    in let c_seen' = foldl (flip Set.insert) c_seen c_skip
+                    in let (cs', c_seen'') = foldl dfs_add_unseen (cs, c_seen') (git_graph_entry_parents cv)
+                    in     dfs g_fold' cs' c_seen''
 
         dfs_add_unseen (cs, c_seen) c =
             if Set.notMember c c_seen
