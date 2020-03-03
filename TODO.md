@@ -59,3 +59,10 @@ Subgraph:
 Note that we will lookup most commits twice: once when copying, once when
 finding its parents. But the finding parents lookup is on sg, so it's not a big
 deal (on average faster than using g again).
+
+---
+
+  * Pass another value n when trying to find best bisect commit, maximum number
+    of commits to calculate ancestors of before giving up
+    * Needs depth-first search
+    * Alternatively, pick at random
