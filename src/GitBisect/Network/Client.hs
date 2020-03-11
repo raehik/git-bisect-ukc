@@ -4,7 +4,7 @@ module GitBisect.Network.Client where
 
 import GitBisect.Types
 import qualified GitBisect.Network.Messages as Msg
-import GitBisect.Algo
+import qualified GitBisect.Algo as Algo
 
 import qualified Data.Aeson as Aeson
 import qualified Network.WebSockets as WS
@@ -18,6 +18,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
+import Data.Either.Combinators (mapLeft)
+import Control.Error.Safe (tryRight)
 
 data ClientConfig = ClientConfig {
     clientConfigAuth :: ClientAuth
@@ -37,16 +39,23 @@ data ServerConfig = ServerConfig {
 data NetError
     = NetErrorUnspecified
     | NetErrorEncounteredMsgErrorDuringDecode Msg.MsgError
+    | NetErrorUnimplemented
+    | NetErrorEncounteredAlgoErrorDuringSubgraph
     deriving (Show)
 
 type ClientResult = Either NetError String
 type Client = WS.Connection -> IO ClientResult
 
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
-send conn msg = WS.sendTextData conn $ Aeson.encode msg
+send conn msg = do
+    WS.sendTextData conn $ Aeson.encode msg
+    putStrLn "message sent"
 
---recv :: TODO a => ClientConnection -> IO a
-recv = WS.receiveData
+recv :: WS.WebSocketsData a => WS.Connection -> IO a
+recv conn = do
+    d <- WS.receiveData conn
+    putStrLn "message received"
+    return d
 
 serverCfg_test = ServerConfig "129.12.44.229" 1234 "/"
 clientCfg_bo207 = ClientConfig $ ClientAuth "bo207" "49ea39ac"
@@ -55,7 +64,9 @@ client_bo207 = client clientCfg_bo207
 
 -- | Run a client against the given server.
 run :: Client -> ServerConfig -> IO ClientResult
-run c sc = WS.runClient (serverConfigHost sc) (serverConfigPort sc) (serverConfigPath sc) c
+run c sc = do
+    putStrLn "starting client..."
+    WS.runClient (serverConfigHost sc) (serverConfigPort sc) (serverConfigPath sc) c
 
 showClientResult (Left err) = "nope sry, error: " ++ show err
 showClientResult (Right yay) = "yay worked, msg: " ++ yay
@@ -79,15 +90,24 @@ client cd conn = do
                     print mInstance
 -}
 
---decodeOrPrintError msg = Msg.decode msg -> IO ()
+--decodeOrWrapError msg = mapLeft NetErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
+decodeOrWrapError msg = Left NetErrorUnspecified
 
---client :: ClientConfig -> ClientConnection -> IO ClientResult
+-- all done in an ExceptT ClientResult IO a
+-- lift wraps an IO a into our monad
+-- return wraps an a into our monad
+client :: ClientConfig -> WS.Connection -> IO ClientResult
 client cc conn = runExceptT $ do
+    lift $ putStrLn "client started"
     let cca = clientConfigAuth cc
     lift $ send conn $ Msg.MAuth (clientAuthUser cca) (clientAuthToken cca)
     msg <- lift $ (recv conn :: IO ByteString)
-    ExceptT $ return $ Right "ok"
---    case Msg.decode msg :: Either Msg.MsgError Msg.MRepo of
---        Left err -> return $ Left $ NetErrorEncounteredMsgErrorDuringDecode err
---        Right mRepo -> return $ Right "ok"
---    --mRepo <- return $ either (Msg.decode msg :: Either Msg.MsgError Msg.MRepo) 
+    mRepo <- tryRight $ (decodeOrWrapError msg :: Either NetError Msg.MRepo)
+    --msg <- lift $ (recv conn :: IO ByteString)
+    --mInstance <- return $ (decodeOrWrapError msg :: Either NetError Msg.MInstance)
+    --lift $ print $ Msg.mInstanceGood mInstance
+    --dag <- return $ maybe NetErrorEncounteredAlgoErrorDuringSubgraph id $ Algo.git_repo_sg_bad (Msg.mInstanceBad mInstance) (Msg.mRepoDag mRepo) >>= Algo.git_repo_sg_good (Msg.mInstanceGood mInstance) (Msg.mInstanceBad mInstance)
+    lift $ print $ mRepo
+    ExceptT $ return $ Left NetErrorUnimplemented
+
+--    ExceptT $ return $ Right $ show mRepo

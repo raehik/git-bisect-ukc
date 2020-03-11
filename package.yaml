@@ -28,6 +28,7 @@ dependencies:
 - bytestring >= 0.10
 - either >= 5.0
 - transformers >= 0.5
+- errors >= 2.3
 
 library:
   source-dirs: src

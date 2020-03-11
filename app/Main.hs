@@ -4,4 +4,8 @@ import GitBisect.Types
 import qualified GitBisect.Network.Client as Client
 
 main :: IO ()
-main = Client.run Client.client_bo207 Client.serverCfg_test >>= print
+main = do
+    out <- Client.run Client.client_bo207 Client.serverCfg_test
+    case out of
+        Left err -> putStrLn $ "ERROR: " ++ show err
+        Right result -> putStrLn result

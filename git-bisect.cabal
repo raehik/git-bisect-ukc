@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 9be3e83bf364ef7570f00ff7e54660a76a85ae831857b6daae121667a3bbc5de
+-- hash: 4c7ed42489ff5e3cdc6d58ae38808dce92c223b10f500aac9a4b7f3e78c554d3
 
 name:           git-bisect
 version:        0.3.0
@@ -36,6 +36,7 @@ library
     , bytestring >=0.10
     , containers >=0.6
     , either >=5.0
+    , errors >=2.3
     , text >=1.2
     , transformers >=0.5
     , websockets >=0.12
@@ -54,6 +55,7 @@ executable git-bisect-exe
     , bytestring >=0.10
     , containers >=0.6
     , either >=5.0
+    , errors >=2.3
     , git-bisect
     , text >=1.2
     , transformers >=0.5
@@ -74,6 +76,7 @@ test-suite git-bisect-test
     , bytestring >=0.10
     , containers >=0.6
     , either >=5.0
+    , errors >=2.3
     , git-bisect
     , text >=1.2
     , transformers >=0.5
