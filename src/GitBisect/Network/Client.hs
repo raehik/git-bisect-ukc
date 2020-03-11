@@ -44,6 +44,7 @@ data NetError
     | NetErrorUnimplemented
     | NetErrorEncounteredAlgoErrorDuringSubgraph
     | NetErrorEncounteredAlgoErrorDuringBisectSelection
+    | NetErrorServerError
     deriving (Show)
 
 type ClientResult = Either NetError String
@@ -56,12 +57,12 @@ git_repo_list_to_map l = foldl (\m (c, c_parents) -> Map.insert c (GitGraphEntry
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 send conn msg = do
     WS.sendTextData conn $ Aeson.encode msg
-    putStrLn "message sent"
+    --putStrLn "message sent"
 
 recv :: WS.WebSocketsData a => WS.Connection -> IO a
 recv conn = do
     d <- WS.receiveData conn
-    putStrLn "message received"
+    --putStrLn "message received"
     return d
 
 serverCfg_test = ServerConfig "129.12.44.229" 1234 "/"
@@ -103,25 +104,55 @@ client cc conn = runExceptT $ do
     lift $ send conn $ Msg.MAuth (clientAuthUser cca) (clientAuthToken cca)
     lift $ putStrLn "authenticated"
 
-    -- Receive a repo
-    mRepo :: Msg.MRepo <- tryRecvAndDecode conn
-    let g = git_repo_list_to_map (Msg.mRepoDag mRepo)
-    lift $ putStrLn "received repo"
+    -- Move to repo/score state
+    clientStateNextRepoOrEnd conn
 
+clientStateNextRepoOrEnd :: WS.Connection -> ExceptT NetError IO String
+clientStateNextRepoOrEnd conn = do
+    -- Receive a message
+    msg <- lift $ (recv conn :: IO ByteString)
+
+    -- Check whether it was a repo message, or a score message
+    case Msg.decode msg :: Either Msg.MsgError Msg.MRepo of
+        Right mRepo -> do
+            -- repo -> loop over every instance
+            let repoName = T.unpack $ Msg.mRepoName mRepo
+            let repoGraph = git_repo_list_to_map $ Msg.mRepoDag mRepo
+            let repoInstanceCount = Msg.mRepoInstanceCount mRepo
+            lift $ putStrLn $ "solving repo: " ++ repoName
+            clientStateRepo conn repoName repoGraph repoInstanceCount
+        Left err ->
+            case Msg.decode msg :: Either Msg.MsgError Msg.MScore of
+                -- score -> loop over every instance
+                Right mScore ->
+                    ExceptT $ return $ Right $ show mScore
+                -- neither -> some sort of server error
+                Left err ->
+                    ExceptT $ return $ Left $ NetErrorServerError
+
+clientStateRepo :: WS.Connection -> String -> GitGraph -> Int -> ExceptT NetError IO String
+clientStateRepo conn repoName g 0 = clientStateNextRepoOrEnd conn
+clientStateRepo conn repoName g remainingInstances = do
     -- Receive an instance
     mInstance :: Msg.MInstance <- tryRecvAndDecode conn
     let cGood = Msg.mInstanceGood mInstance
     let cBad = Msg.mInstanceBad mInstance
-    lift $ putStrLn "received instance"
+    lift $ putStrLn $ repoName ++ ": received instance"
 
     -- Perform special good+bad initial filter
     sg <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_both cGood cBad g
-    lift $ putStrLn "filtered graph both sides"
+    --lift $ putStrLn "filtered graph both sides"
 
-    cAnswer <- clientStateBisectLoop conn cGood cBad sg
+    -- Q&A loop until we find the solution
+    --cSolution <- clientStateBisectLoop conn cGood cBad sg
+    cSolution <- ExceptT $ return $ Right $ cBad
 
-    lift $ print $ cAnswer
-    ExceptT $ return $ Left $ NetErrorUnimplemented
+    -- Send answer
+    --lift $ print $ cSolution
+    lift $ send conn $ Msg.MSolution cSolution
+
+    -- And recurse for the remaining instances
+    clientStateRepo conn repoName g (remainingInstances-1)
 
 clientStateBisectLoop :: WS.Connection -> GitCommit -> GitCommit -> GitGraph -> ExceptT NetError IO GitCommit
 clientStateBisectLoop conn cGood cBad g =

@@ -24,6 +24,7 @@ import qualified Data.Char as Char
 import Data.Text (Text)
 import Data.ByteString.Lazy (ByteString)
 import Data.Either.Combinators (mapLeft)
+import Data.Scientific as Scientific
 
 type MsgString = Text
 
@@ -98,72 +99,31 @@ instance FromJSON MAnswer where
         mAnswerCommitStatus <- o .: "Answer"
         return MAnswer{..}
 
-{-
-data JPDagEntry = JPDagEntry GitCommit [GitCommit] deriving (Show, Generic, ToJSON, FromJSON)
-data JPProblem = JPProblem {
-    jpProblemName :: MsgString,
-    jpProblemGood :: GitCommit,
-    jpProblemBad :: GitCommit,
-    jpProblemDag :: [JSONPartDagEntry]
-} deriving (Show, Generic, ToJSON, FromJSON)
-data JMProblem = JMProblem {
-    problem :: JPProblem
+data MSolution = MSolution {
+    mSolutionCommit :: MsgString
 } deriving (Show, Generic)
-instance ToJSON JMProblem where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgProblem where
-    parseJSON = withObject "JSONMsgProblem" $ \o -> do
-        problem <- o .: "Problem"
-        return JSONMsgProblem{..}
+instance ToJSON MSolution where
+    toJSON MSolution{..} = object [
+        "Solution" .= mSolutionCommit
+        ]
 
-data JSONMsgSolution = JSONMsgSolution {
-    solution :: GitCommit
+data MScore = MScore {
+    mScoreScores :: Map MsgString ProblemScore
 } deriving (Show, Generic)
-instance ToJSON JSONMsgSolution where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgSolution where
-    parseJSON = withObject "JSONMsgSolution" $ \o -> do
-        solution <- o .: "Solution"
-        return JSONMsgSolution{..}
+instance FromJSON MScore where
+    parseJSON = withObject "MScore" $ \o -> do
+        mScoreScores <- o .: "Score"
+        return MScore{..}
 
--- Weird stuff going on here: Aeson comes a built-in instance for Map Text
--- a, and an instance for Maybe b. In particular, the Maybe instance gives you
--- Just a for a regular value, or Nothing for a null. Very handy.
-data JSONPartScore = JSONPartScore (Map MsgString (Maybe Int)) deriving (Show, Generic, ToJSON, FromJSON)
-data JSONMsgScore = JSONMsgScore {
-    score :: JSONPartScore
-} deriving (Show, Generic)
-instance ToJSON JSONMsgScore where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgScore where
-    parseJSON = withObject "JSONMsgScore" $ \o -> do
-        score <- o .: "Score"
-        return JSONMsgScore{..}
-
-data JPFileRepoRefAns = JPFileRepoRefAns {
-    jpFileRepoRefAnsBug :: GitCommit,
-    jpFileRepoRefAnsAllBad :: [GitCommit]
-} deriving (Show, Generic)
-$(deriveJSON defaultOptions{fieldLabelModifier = drop 13} ''JPFileRepoRefAns)
-data JSONMsgFileRepo = JSONMsgFileRepo JSONPartProblem JSONPartFileRepoRefAns deriving (Show, Generic, ToJSON, FromJSON)
-
---decode_file :: FilePath -> IO (Maybe JSONMsgFileRepo)
-decode_file f = do
-    json <- BL.readFile f
-    return (decode json :: Maybe JSONMsgFileRepo)
-
--- Convert a repo in JSON representation to a GitGraph.
--- Makes no validity checks, and does not calculate ancestors.
-git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
-git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
-
-capitalize (ch:chars) = (Char.toUpper ch):chars
-decapitalize (ch:chars) = (Char.toLower ch):chars
-
--}
+data ProblemScore
+    = ProblemScoreWrong
+    | ProblemScoreGaveUp
+    | ProblemScoreCorrect Int
+    deriving (Show, Generic)
+instance FromJSON ProblemScore where
+    parseJSON (String "Wrong") = return ProblemScoreWrong
+    parseJSON (String "GaveUp") = return ProblemScoreGaveUp
+    parseJSON (Object obj) = do
+        (Number score) <- obj .: "Correct"
+        return $ ProblemScoreCorrect $ fromIntegral $ Scientific.coefficient score
+    parseJSON _ = fail "not a valid problem score"
