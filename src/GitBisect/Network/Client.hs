@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module GitBisect.Network.Client where
 
@@ -19,7 +20,8 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Either.Combinators (mapLeft)
-import Control.Error.Safe (tryRight)
+import Control.Error.Safe (tryRight, tryJust)
+import Data.Maybe (fromMaybe)
 
 data ClientConfig = ClientConfig {
     clientConfigAuth :: ClientAuth
@@ -41,10 +43,15 @@ data NetError
     | NetErrorEncounteredMsgErrorDuringDecode Msg.MsgError
     | NetErrorUnimplemented
     | NetErrorEncounteredAlgoErrorDuringSubgraph
+    | NetErrorEncounteredAlgoErrorDuringBisectSelection
     deriving (Show)
 
 type ClientResult = Either NetError String
 type Client = WS.Connection -> IO ClientResult
+
+-- Initialise repo map with empty ancestors.
+git_repo_list_to_map :: [(Msg.MsgString, [Msg.MsgString])] -> GitGraph
+git_repo_list_to_map l = foldl (\m (c, c_parents) -> Map.insert c (GitGraphEntry c_parents Nothing) m) Map.empty l
 
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 send conn msg = do
@@ -71,27 +78,18 @@ run c sc = do
 showClientResult (Left err) = "nope sry, error: " ++ show err
 showClientResult (Right yay) = "yay worked, msg: " ++ yay
 
-{-
-client :: ClientConfig -> ClientConnection -> IO ClientResult
-client cd conn = do
-    let ca = clientConfigAuth cd
-    putStrLn "authenticating..."
-    send conn $ Msg.MAuth (clientAuthUser ca) (clientAuthToken ca)
-    putStrLn "authenticated"
-    msg <- recv conn
-    case Msg.decode msg :: Either Msg.MsgError Msg.MRepo of
-        Left err -> print err
-        Right mRepo -> do
-            msg <- recv conn
-            case Msg.decode msg :: Either Msg.MsgError Msg.MInstance of
-                Left err -> print err
-                Right mInstance -> do
-                    print mRepo
-                    print mInstance
--}
+decodeOrWrapError msg = mapLeft NetErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
 
---decodeOrWrapError msg = mapLeft NetErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
-decodeOrWrapError msg = Left NetErrorUnspecified
+tryRecvAndDecode :: Aeson.FromJSON a => WS.Connection -> ExceptT NetError IO a
+tryRecvAndDecode conn = do
+    msg <- lift $ (recv conn :: IO ByteString)
+    tryRight $ decodeOrWrapError msg
+
+filter_both cGood cBad g =
+    Algo.git_repo_sg_bad cBad g >>= Algo.git_repo_sg_good cGood cBad
+
+filter_good = Algo.git_repo_sg_good
+filter_bad = Algo.git_repo_sg_bad
 
 -- all done in an ExceptT ClientResult IO a
 -- lift wraps an IO a into our monad
@@ -99,15 +97,44 @@ decodeOrWrapError msg = Left NetErrorUnspecified
 client :: ClientConfig -> WS.Connection -> IO ClientResult
 client cc conn = runExceptT $ do
     lift $ putStrLn "client started"
+
+    -- Authenticate with server
     let cca = clientConfigAuth cc
     lift $ send conn $ Msg.MAuth (clientAuthUser cca) (clientAuthToken cca)
-    msg <- lift $ (recv conn :: IO ByteString)
-    mRepo <- tryRight $ (decodeOrWrapError msg :: Either NetError Msg.MRepo)
-    --msg <- lift $ (recv conn :: IO ByteString)
-    --mInstance <- return $ (decodeOrWrapError msg :: Either NetError Msg.MInstance)
-    --lift $ print $ Msg.mInstanceGood mInstance
-    --dag <- return $ maybe NetErrorEncounteredAlgoErrorDuringSubgraph id $ Algo.git_repo_sg_bad (Msg.mInstanceBad mInstance) (Msg.mRepoDag mRepo) >>= Algo.git_repo_sg_good (Msg.mInstanceGood mInstance) (Msg.mInstanceBad mInstance)
-    lift $ print $ mRepo
-    ExceptT $ return $ Left NetErrorUnimplemented
+    lift $ putStrLn "authenticated"
 
---    ExceptT $ return $ Right $ show mRepo
+    -- Receive a repo
+    mRepo :: Msg.MRepo <- tryRecvAndDecode conn
+    let g = git_repo_list_to_map (Msg.mRepoDag mRepo)
+    lift $ putStrLn "received repo"
+
+    -- Receive an instance
+    mInstance :: Msg.MInstance <- tryRecvAndDecode conn
+    let cGood = Msg.mInstanceGood mInstance
+    let cBad = Msg.mInstanceBad mInstance
+    lift $ putStrLn "received instance"
+
+    -- Perform special good+bad initial filter
+    sg <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_both cGood cBad g
+    lift $ putStrLn "filtered graph both sides"
+
+    cAnswer <- clientStateBisectLoop conn cGood cBad sg
+
+    lift $ print $ cAnswer
+    ExceptT $ return $ Left $ NetErrorUnimplemented
+
+clientStateBisectLoop :: WS.Connection -> GitCommit -> GitCommit -> GitGraph -> ExceptT NetError IO GitCommit
+clientStateBisectLoop conn cGood cBad g =
+    if Map.size g == 1 then ExceptT $ return $ Right $ cBad
+    else do
+        lift $ print $ Map.size g
+        (cBisect, g') <- tryJust NetErrorEncounteredAlgoErrorDuringBisectSelection $ Algo.git_repo_select_bisect_with_limit 10000 cBad g
+        lift $ send conn $ Msg.MQuestion cBisect
+        mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
+        case (Msg.mAnswerCommitStatus mAnswer) of
+            Msg.CommitGood -> do
+                g'' <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_good cBisect cBad g'
+                clientStateBisectLoop conn cGood cBisect g''
+            Msg.CommitBad -> do
+                g'' <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_bad cBisect g'
+                clientStateBisectLoop conn cGood cBisect g''

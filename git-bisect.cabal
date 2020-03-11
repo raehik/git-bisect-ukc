@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4c7ed42489ff5e3cdc6d58ae38808dce92c223b10f500aac9a4b7f3e78c554d3
+-- hash: 19433b6b45ffdc43c15fa74edda2ac3cdf2f5d40e3828a58eba1fa50f69ab504
 
 name:           git-bisect
 version:        0.3.0
@@ -24,7 +24,6 @@ library
       GitBisect.Algo
       GitBisect.Network.Client
       GitBisect.Network.Messages
-      GitBisect.Network.Types
       GitBisect.Types
   other-modules:
       Paths_git_bisect

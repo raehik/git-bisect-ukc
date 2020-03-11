@@ -82,6 +82,22 @@ instance FromJSON MInstance where
         mInstanceBad <- inst .: "bad"
         return MInstance{..}
 
+data MQuestion = MQuestion {
+    mQuestionCommit :: MsgString
+} deriving (Show, Generic)
+instance ToJSON MQuestion where
+    toJSON MQuestion{..} = object [
+        "Question" .= mQuestionCommit
+        ]
+
+data MAnswer = MAnswer {
+    mAnswerCommitStatus :: CommitStatus
+} deriving (Show, Generic)
+instance FromJSON MAnswer where
+    parseJSON = withObject "MAnswer" $ \o -> do
+        mAnswerCommitStatus <- o .: "Answer"
+        return MAnswer{..}
+
 {-
 data JPDagEntry = JPDagEntry GitCommit [GitCommit] deriving (Show, Generic, ToJSON, FromJSON)
 data JPProblem = JPProblem {
@@ -101,30 +117,6 @@ instance FromJSON JSONMsgProblem where
     parseJSON = withObject "JSONMsgProblem" $ \o -> do
         problem <- o .: "Problem"
         return JSONMsgProblem{..}
-
-data JSONMsgQuestion = JSONMsgQuestion {
-    question :: GitCommit
-} deriving (Show, Generic)
-instance ToJSON JSONMsgQuestion where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgQuestion where
-    parseJSON = withObject "JSONMsgQuestion" $ \o -> do
-        question <- o .: "Question"
-        return JSONMsgQuestion{..}
-
-data JSONMsgAnswer = JSONMsgAnswer {
-    answer :: GitCommitStatus
-} deriving (Show, Generic)
-instance ToJSON JSONMsgAnswer where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgAnswer where
-    parseJSON = withObject "JSONMsgAnswer" $ \o -> do
-        answer <- o .: "Answer"
-        return JSONMsgAnswer{..}
 
 data JSONMsgSolution = JSONMsgSolution {
     solution :: GitCommit
