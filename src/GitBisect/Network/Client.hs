@@ -54,10 +54,8 @@ clientCfg_bo207 = ClientConfig $ ClientAuth "bo207" "49ea39ac"
 client_bo207 = client clientCfg_bo207
 
 -- | Run a client against the given server.
-run :: Client -> ServerConfig -> IO ()
-run c sc = do
-    out <- WS.runClient (serverConfigHost sc) (serverConfigPort sc) (serverConfigPath sc) $ c
-    putStrLn $ showClientResult out
+run :: Client -> ServerConfig -> IO ClientResult
+run c sc = WS.runClient (serverConfigHost sc) (serverConfigPort sc) (serverConfigPath sc) c
 
 showClientResult (Left err) = "nope sry, error: " ++ show err
 showClientResult (Right yay) = "yay worked, msg: " ++ yay
