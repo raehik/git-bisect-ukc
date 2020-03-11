@@ -10,3 +10,8 @@ data GitGraphEntry = GitGraphEntry {
     gitGraphEntryParents :: [GitCommit],
     gitGraphEntryAncestors :: Maybe (Set GitCommit)
 } deriving (Show)
+
+data ErrorContainer a = ErrorContainer a (ErrorContainer a)
+data GitError
+    = GitErrorUnspecified
+    deriving (Show)

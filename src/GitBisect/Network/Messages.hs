@@ -12,7 +12,7 @@
 -- LOL
 {-# LANGUAGE TemplateHaskell #-}
 
-module GitBisect.Network.JSON where
+module GitBisect.Network.Messages where
 
 import GitBisect.Types
 import GHC.Generics
@@ -20,51 +20,80 @@ import Data.Aeson
 import Data.Aeson.TH
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Char as Char
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BL
+import Data.Text (Text)
+import Data.ByteString.Lazy (ByteString)
+import Data.Either.Combinators (mapLeft)
 
-data GitCommitStatus
-    = GitCommitGood
-    | GitCommitBad
+type MsgString = Text
+
+data CommitStatus
+    = CommitGood
+    | CommitBad
     deriving (Show, Generic)
-instance FromJSON GitCommitStatus where
-    parseJSON (String "Good") = return GitCommitGood
-    parseJSON (String "Bad") = return GitCommitBad
+instance FromJSON CommitStatus where
+    parseJSON (String "Good") = return CommitGood
+    parseJSON (String "Bad") = return CommitBad
     parseJSON _ = fail "not a valid commit status"
-instance ToJSON GitCommitStatus where
-    toJSON GitCommitGood = String "Good"
-    toJSON GitCommitBad = String "Bad"
+instance ToJSON CommitStatus where
+    toJSON CommitGood = String "Good"
+    toJSON CommitBad = String "Bad"
 
-capitalize (ch:chars) = (Char.toUpper ch):chars
-decapitalize (ch:chars) = (Char.toLower ch):chars
+data MsgError
+    = MsgErrorAesonDecodeFailed String
+    deriving (Show)
 
-type JSONPartUser = [Text]
-data JSONMsgUser = JSONMsgUser {
-    user :: JSONPartUser
+decode :: FromJSON a => ByteString -> Either MsgError a
+decode msg = mapLeft MsgErrorAesonDecodeFailed (Data.Aeson.eitherDecode msg)
+
+encode :: ToJSON a => a -> ByteString
+encode = Data.Aeson.encode
+
+data MAuth = MAuth {
+    mAuthUser :: MsgString,
+    mAuthToken :: MsgString
 } deriving (Show, Generic)
-instance ToJSON JSONMsgUser where
-    toJSON = genericToJSON defaultOptions {
-        fieldLabelModifier = capitalize
-    }
-instance FromJSON JSONMsgUser where
-    parseJSON = withObject "JSONMsgUser" $ \o -> do
-        user <- o .: "User"
-        return JSONMsgUser{..}
+instance ToJSON MAuth where
+    toJSON MAuth{..} = object [
+        "User" .= [mAuthUser, mAuthToken]
+        ]
 
-data JSONPartDagEntry = JSONPartDagEntry GitCommit [GitCommit] deriving (Show, Generic, ToJSON, FromJSON)
-data JSONPartProblem = JSONPartProblem {
-    name :: Text,
-    good :: GitCommit,
-    bad :: GitCommit,
-    dag :: [JSONPartDagEntry]
+data MRepo = MRepo {
+    mRepoName :: MsgString,
+    mRepoInstanceCount :: Int,
+    mRepoDag :: [(MsgString, [MsgString])]
+} deriving (Show, Generic)
+instance FromJSON MRepo where
+    parseJSON = withObject "MRepo" $ \o -> do
+        repo <- o .: "Repo"
+        mRepoName <- repo .: "name"
+        mRepoInstanceCount <- repo .: "instance_count"
+        mRepoDag <- repo .: "dag"
+        return MRepo{..}
+
+data MInstance = MInstance {
+    mInstanceGood :: MsgString,
+    mInstanceBad :: MsgString
+} deriving (Show, Generic)
+instance FromJSON MInstance where
+    parseJSON = withObject "MInstance" $ \o -> do
+        inst <- o .: "Instance"
+        mInstanceGood <- inst .: "good"
+        mInstanceBad <- inst .: "bad"
+        return MInstance{..}
+
+{-
+data JPDagEntry = JPDagEntry GitCommit [GitCommit] deriving (Show, Generic, ToJSON, FromJSON)
+data JPProblem = JPProblem {
+    jpProblemName :: MsgString,
+    jpProblemGood :: GitCommit,
+    jpProblemBad :: GitCommit,
+    jpProblemDag :: [JSONPartDagEntry]
 } deriving (Show, Generic, ToJSON, FromJSON)
-data JSONMsgProblem = JSONMsgProblem {
-    problem :: JSONPartProblem
+data JMProblem = JMProblem {
+    problem :: JPProblem
 } deriving (Show, Generic)
-instance ToJSON JSONMsgProblem where
+instance ToJSON JMProblem where
     toJSON = genericToJSON defaultOptions {
         fieldLabelModifier = capitalize
     }
@@ -112,7 +141,7 @@ instance FromJSON JSONMsgSolution where
 -- Weird stuff going on here: Aeson comes a built-in instance for Map Text
 -- a, and an instance for Maybe b. In particular, the Maybe instance gives you
 -- Just a for a regular value, or Nothing for a null. Very handy.
-data JSONPartScore = JSONPartScore (Map Text (Maybe Int)) deriving (Show, Generic, ToJSON, FromJSON)
+data JSONPartScore = JSONPartScore (Map MsgString (Maybe Int)) deriving (Show, Generic, ToJSON, FromJSON)
 data JSONMsgScore = JSONMsgScore {
     score :: JSONPartScore
 } deriving (Show, Generic)
@@ -125,11 +154,11 @@ instance FromJSON JSONMsgScore where
         score <- o .: "Score"
         return JSONMsgScore{..}
 
-data JSONPartFileRepoRefAns = JSONPartFileRepoRefAns {
-    fra_bug :: GitCommit,
-    fra_all_bad :: [GitCommit]
+data JPFileRepoRefAns = JPFileRepoRefAns {
+    jpFileRepoRefAnsBug :: GitCommit,
+    jpFileRepoRefAnsAllBad :: [GitCommit]
 } deriving (Show, Generic)
-$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''JSONPartFileRepoRefAns)
+$(deriveJSON defaultOptions{fieldLabelModifier = drop 13} ''JPFileRepoRefAns)
 data JSONMsgFileRepo = JSONMsgFileRepo JSONPartProblem JSONPartFileRepoRefAns deriving (Show, Generic, ToJSON, FromJSON)
 
 --decode_file :: FilePath -> IO (Maybe JSONMsgFileRepo)
@@ -141,3 +170,8 @@ decode_file f = do
 -- Makes no validity checks, and does not calculate ancestors.
 git_json_repo_to_graph :: [JSONPartDagEntry] -> GitGraph
 git_json_repo_to_graph = foldl (\g (JSONPartDagEntry c cps) -> Map.insert c (GitGraphEntry cps Nothing) g) Map.empty
+
+capitalize (ch:chars) = (Char.toUpper ch):chars
+decapitalize (ch:chars) = (Char.toLower ch):chars
+
+-}

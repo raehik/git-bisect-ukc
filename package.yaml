@@ -26,6 +26,7 @@ dependencies:
 - aeson >= 1.4
 - websockets >= 0.12
 - bytestring >= 0.10
+- either >= 5.0
 
 library:
   source-dirs: src
