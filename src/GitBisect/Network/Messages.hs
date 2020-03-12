@@ -127,3 +127,7 @@ instance FromJSON ProblemScore where
         (Number score) <- obj .: "Correct"
         return $ ProblemScoreCorrect $ fromIntegral $ Scientific.coefficient score
     parseJSON _ = fail "not a valid problem score"
+
+data MGiveUp = MGiveUp deriving (Show, Generic)
+instance ToJSON MGiveUp where
+    toJSON MGiveUp = String "GiveUp"

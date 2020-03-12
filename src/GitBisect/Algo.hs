@@ -47,6 +47,22 @@ deleteSubgraph head g = deleteSubgraph' g (Set.singleton head) [head]
                         in (Map.delete c g, seen', cs')
             deleteSubgraph' g' seen' cs'
 
+-- Continue on missing commits. (They may have been removed earlier.)
+deleteSubgraphForce :: GitCommit -> GitGraph -> GitGraph
+deleteSubgraphForce head g = deleteSubgraphForce' g (Set.singleton head) [head]
+    where
+        deleteSubgraphForce' g _ [] = g
+        deleteSubgraphForce' g seen (c:cs) =
+            case Map.lookup c g of
+                Nothing -> deleteSubgraphForce' g seen cs
+                Just gge ->
+                    let (g', seen', cs') = case gitGraphEntryAncestors gge of
+                            Just ancs -> (foldl (flip Map.delete) g ancs, Set.union ancs seen, cs)
+                            Nothing ->
+                                let (seen', cs') = scheduleUnseen seen cs (gitGraphEntryParents gge)
+                                in (Map.delete c g, seen', cs')
+                    in deleteSubgraphForce' g' seen' cs'
+
 subgraphRewriteParents :: GitCommit -> GitGraph -> Either Error GitGraph
 subgraphRewriteParents head g = do
     gge <- lookupInGraph head g

@@ -138,21 +138,25 @@ clientStateRepo conn repoName g remainingInstances = do
     -- Perform initial filter
     sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
 
-    -- Solve instance
-    cSolution <- clientStateInstance conn [cGood] cBad sg
-
-    -- Send answer
-    lift $ putStrLn $ "solution: " ++ T.unpack cSolution
-    lift $ send conn $ Msg.MSolution cSolution
+    -- Solve instance and send answer
+    cSolution <- clientStateInstance conn [cGood] cBad sg 30
 
     -- And recurse for the remaining instances
     clientStateRepo conn repoName g (remainingInstances-1)
 
-clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> ExceptT Error IO GitCommit
-clientStateInstance conn cGood cBad g =
-    if Map.size g == 1 then ExceptT $ return $ Right $ cBad
+clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> Int -> ExceptT Error IO (Maybe GitCommit)
+clientStateInstance conn cGood cBad g 0 = do
+    -- Ran out of questions
+    lift $ putStrLn $ "ran out of questions, giving up"
+    lift $ send conn $ Msg.MGiveUp
+    ExceptT $ return $ Right $ Nothing
+clientStateInstance conn cGood cBad g remQs =
+    if Map.size g == 1 then do
+        -- Send answer
+        lift $ putStrLn $ "solution: " ++ T.unpack cBad
+        lift $ send conn $ Msg.MSolution cBad
+        ExceptT $ return $ Right $ Just cBad
     else do
-        lift $ print g
         -- Select bisect commit
         --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
         (cBisect, g') <- lift $ bisectRandom g
@@ -162,14 +166,16 @@ clientStateInstance conn cGood cBad g =
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
             Msg.CommitBad -> do
-                lift $ putStrLn $ T.unpack cBisect ++ ": bad"
-                g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
-                --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g' >>= Algo.subgraphRewriteParents cBisect
-                clientStateInstance conn cGood cBisect g''
+                --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
+                g'' <- ExceptT $ return $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
+                lift $ putStrLn $ T.unpack cBisect ++ ": bad  (" ++ show (Map.size g'') ++ ")"
+                clientStateInstance conn cGood cBisect g'' (remQs-1)
             Msg.CommitGood -> do
-                lift $ putStrLn $ T.unpack cBisect ++ ": good"
-                g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
-                clientStateInstance conn [cBisect] cBad g''
+                --g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
+                let g'' = Algo.deleteSubgraphForce cBisect g'
+                g''' <- ExceptT $ return $ subgraph $ Algo.subgraphRewriteParents cBad g''
+                lift $ putStrLn $ T.unpack cBisect ++ ": good (" ++ show (Map.size g''') ++ ")"
+                clientStateInstance conn [cBisect] cBad g''' (remQs-1)
 
 wrapAlgoError :: (Algo.Error -> Error) -> Either Algo.Error a -> Either Error a
 wrapAlgoError e f = either (Left . e) Right f
