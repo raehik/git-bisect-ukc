@@ -35,9 +35,9 @@ data ClientAuth = ClientAuth {
 } deriving (Show)
 
 data ServerConfig = ServerConfig {
-    serverConfigHost :: String,
+    serverConfigHost :: Text,
     serverConfigPort :: Int,
-    serverConfigPath :: String
+    serverConfigPath :: Text
 } deriving (Show)
 
 data Error
@@ -53,7 +53,7 @@ type ClientResult = Either Error String
 type Client = WS.Connection -> IO ClientResult
 
 -- Initialise repo map with empty ancestors.
-git_repo_list_to_map :: [(Msg.MsgString, [Msg.MsgString])] -> GitGraph
+git_repo_list_to_map :: [(GitCommit, [GitCommit])] -> GitGraph
 git_repo_list_to_map l = foldl (\m (c, c_parents) -> Map.insert c (GitGraphEntry c_parents Nothing) m) Map.empty l
 
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
@@ -76,7 +76,7 @@ client_bo207 = client clientCfg_bo207
 run :: Client -> ServerConfig -> IO ClientResult
 run c sc = do
     putStrLn "starting client..."
-    WS.runClient (serverConfigHost sc) (serverConfigPort sc) (serverConfigPath sc) c
+    WS.runClient (T.unpack $ serverConfigHost sc) (serverConfigPort sc) (T.unpack $ serverConfigPath sc) c
 
 showClientResult (Left err) = "nope sry, error: " ++ show err
 showClientResult (Right yay) = "yay worked, msg: " ++ yay

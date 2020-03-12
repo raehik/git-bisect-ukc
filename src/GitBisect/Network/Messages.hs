@@ -26,8 +26,6 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Either.Combinators (mapLeft)
 import Data.Scientific as Scientific
 
-type MsgString = Text
-
 data CommitStatus
     = CommitGood
     | CommitBad
@@ -51,8 +49,8 @@ encode :: ToJSON a => a -> ByteString
 encode = Data.Aeson.encode
 
 data MAuth = MAuth {
-    mAuthUser :: MsgString,
-    mAuthToken :: MsgString
+    mAuthUser :: Text,
+    mAuthToken :: Text
 } deriving (Show, Generic)
 instance ToJSON MAuth where
     toJSON MAuth{..} = object [
@@ -60,9 +58,9 @@ instance ToJSON MAuth where
         ]
 
 data MRepo = MRepo {
-    mRepoName :: MsgString,
+    mRepoName :: Text,
     mRepoInstanceCount :: Int,
-    mRepoDag :: [(MsgString, [MsgString])]
+    mRepoDag :: [(GitCommit, [GitCommit])]
 } deriving (Show, Generic)
 instance FromJSON MRepo where
     parseJSON = withObject "MRepo" $ \o -> do
@@ -73,8 +71,8 @@ instance FromJSON MRepo where
         return MRepo{..}
 
 data MInstance = MInstance {
-    mInstanceGood :: MsgString,
-    mInstanceBad :: MsgString
+    mInstanceGood :: Text,
+    mInstanceBad :: Text
 } deriving (Show, Generic)
 instance FromJSON MInstance where
     parseJSON = withObject "MInstance" $ \o -> do
@@ -84,7 +82,7 @@ instance FromJSON MInstance where
         return MInstance{..}
 
 data MQuestion = MQuestion {
-    mQuestionCommit :: MsgString
+    mQuestionCommit :: Text
 } deriving (Show, Generic)
 instance ToJSON MQuestion where
     toJSON MQuestion{..} = object [
@@ -100,7 +98,7 @@ instance FromJSON MAnswer where
         return MAnswer{..}
 
 data MSolution = MSolution {
-    mSolutionCommit :: MsgString
+    mSolutionCommit :: GitCommit
 } deriving (Show, Generic)
 instance ToJSON MSolution where
     toJSON MSolution{..} = object [
@@ -108,7 +106,7 @@ instance ToJSON MSolution where
         ]
 
 data MScore = MScore {
-    mScoreScores :: Map MsgString ProblemScore
+    mScoreScores :: Map GitCommit ProblemScore
 } deriving (Show, Generic)
 instance FromJSON MScore where
     parseJSON = withObject "MScore" $ \o -> do
