@@ -152,14 +152,19 @@ clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> 
 clientStateInstance conn cGood cBad g =
     if Map.size g == 1 then ExceptT $ return $ Right $ cBad
     else do
+        lift $ print g
+        -- Select bisect commit
         --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
         (cBisect, g') <- lift $ bisectRandom g
+
+        -- Query its status and recurse with an accordingly filtered graph
         lift $ send conn $ Msg.MQuestion cBisect
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
             Msg.CommitBad -> do
                 lift $ putStrLn $ T.unpack cBisect ++ ": bad"
                 g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
+                --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g' >>= Algo.subgraphRewriteParents cBisect
                 clientStateInstance conn cGood cBisect g''
             Msg.CommitGood -> do
                 lift $ putStrLn $ T.unpack cBisect ++ ": good"
