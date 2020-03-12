@@ -23,6 +23,7 @@ import Control.Monad.Trans.Except
 import Data.Either.Combinators (mapLeft)
 import Control.Error.Safe (tryRight, tryJust)
 import Data.Maybe (fromMaybe)
+import qualified System.Random as Random
 
 data ClientConfig = ClientConfig {
     clientConfigAuth :: ClientAuth
@@ -137,36 +138,41 @@ clientStateRepo conn repoName g remainingInstances = do
     -- Perform initial filter
     sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
 
-    --lift $ putStrLn "filtered graph both sides"
-
-    -- Q&A loop until we find the solution
-    cSolution <- clientStateBisectLoop conn [cGood] cBad sg
-    --cSolution <- ExceptT $ return $ Right $ cBad
+    -- Solve instance
+    cSolution <- clientStateInstance conn [cGood] cBad sg
 
     -- Send answer
-    --lift $ print $ cSolution
+    lift $ putStrLn $ "solution: " ++ T.unpack cSolution
     lift $ send conn $ Msg.MSolution cSolution
 
     -- And recurse for the remaining instances
     clientStateRepo conn repoName g (remainingInstances-1)
 
-clientStateBisectLoop :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> ExceptT Error IO GitCommit
-clientStateBisectLoop conn cGood cBad g =
+clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> ExceptT Error IO GitCommit
+clientStateInstance conn cGood cBad g =
     if Map.size g == 1 then ExceptT $ return $ Right $ cBad
     else do
-        lift $ putStrLn $ "size: " ++ show (Map.size g)
-        (cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
+        --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
+        (cBisect, g') <- lift $ bisectRandom g
         lift $ send conn $ Msg.MQuestion cBisect
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
             Msg.CommitBad -> do
+                lift $ putStrLn $ T.unpack cBisect ++ ": bad"
                 g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
-                clientStateBisectLoop conn cGood cBisect g''
+                clientStateInstance conn cGood cBisect g''
             Msg.CommitGood -> do
+                lift $ putStrLn $ T.unpack cBisect ++ ": good"
                 g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
-                clientStateBisectLoop conn [cBisect] cBad g''
+                clientStateInstance conn [cBisect] cBad g''
 
 wrapAlgoError :: (Algo.Error -> Error) -> Either Algo.Error a -> Either Error a
 wrapAlgoError e f = either (Left . e) Right f
 subgraph :: Either Algo.Error a -> Either Error a
 subgraph f = wrapAlgoError ErrorEncounteredAlgoErrorDuringSubgraph f
+
+bisectRandom g = do
+    let size = Map.size g
+    rnd <- Random.randomRIO (0, size-1)
+    let randomCommit = Map.keys g !! rnd
+    return (randomCommit, g)

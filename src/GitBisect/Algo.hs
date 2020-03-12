@@ -50,14 +50,25 @@ deleteSubgraph head g = deleteSubgraph' g (Set.singleton head) [head]
 subgraphRewriteParents :: GitCommit -> GitGraph -> Either Error GitGraph
 subgraphRewriteParents head g = do
     gge <- lookupInGraph head g
-    subgraphRewriteParents' (Map.insert head (presentParents gge) g) (Set.singleton head) [head]
+    subgraphRewriteParents' (Map.insert head (presentParents g gge) g) (Set.singleton head) [head]
     where
-        presentParents gge =
-            let parents' = filter (flip Map.member g) (gitGraphEntryParents gge)
-            in GitGraphEntry parents' Nothing
+        presentParents g gge =
+            let cps' = filter (flip Map.member g) (gitGraphEntryParents gge)
+            in GitGraphEntry cps' Nothing
         subgraphRewriteParents' g _ [] = Right g
         subgraphRewriteParents' g seen (c:cs) = do
-            gge <- lookupInGraph head g
-            let gge' = presentParents gge
+            gge <- lookupInGraph c g
+            let gge' = presentParents g gge
             let (seen', cs') = scheduleUnseen seen cs (gitGraphEntryParents gge')
             subgraphRewriteParents' (Map.insert c gge' g) seen' cs'
+
+--selectBisectWithLimit rem_calcs head g =
+--    selectBisectWithLimit rem_calcs [head] g (Set.singleton head) (head, 0)
+
+-- Case: Graph fully traversed. Return best commit so far (== overall best).
+--selectBisectWithLimit' _ [] g _ (cBestCur, _) = Right (cBestCur, g)
+
+-- Case: Calculations exhausted. Return best commit so far.
+--selectBisectWithLimit' 0 _  g _ (cBestCur, _) = Right (cBestCur, g)
+
+--selectBisectWithLimit' remCalcs (c:cs) g _ (cBestCur, _) = Right (cBestCur, g)

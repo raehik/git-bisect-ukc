@@ -30,6 +30,7 @@ dependencies:
 - transformers >= 0.5
 - errors >= 2.3
 - scientific >= 0.3
+- random >= 1.1
 
 library:
   source-dirs: src
