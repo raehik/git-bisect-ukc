@@ -1,15 +1,14 @@
-{-# LANGUAGE OverloadedStrings #-}
+module GitBisect.Examples where
 
-module GitBisect.Tests where
-
-import Data
-import Algo
-import Main
-import qualified Data.Text as T
+import GitBisect.Types
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Text as T
 
-git_repo_ex_meh = [
+exampleToMap l =
+    foldl (\m (c, cps) -> Map.insert (T.pack c) (GitGraphEntry (map T.pack cps) Nothing) m) Map.empty l
+
+meh = [
     ("a", []), -- good
     ("b", ["a"]),
     ("c", ["b"]),
@@ -20,10 +19,10 @@ git_repo_ex_meh = [
     ("x", ["g"]) -- this should be filtered
     ]
 
-git_repo_ex_simple_filter_test = [
+simpleFilterTest = [
     ("g", ["c2"]),          -- good
     ("b", ["c1", "g"]),     -- bad
-    ("c2", []),             -- phase 1 filtered
-    ("c3", ["c1"]),         -- phase 2 filtered
+    ("c2", []),             -- filtered during deletion
+    ("c3", ["c1"]),         -- filtered during subgraphing
     ("c1", ["c2"])          -- kept
     ]

@@ -6,6 +6,7 @@ module GitBisect.Network.Client where
 import GitBisect.Types
 import qualified GitBisect.Network.Messages as Msg
 import qualified GitBisect.Algo as Algo
+import qualified GitBisect.AlgoOld as AlgoOld
 
 import qualified Data.Aeson as Aeson
 import qualified Network.WebSockets as WS
@@ -38,16 +39,16 @@ data ServerConfig = ServerConfig {
     serverConfigPath :: String
 } deriving (Show)
 
-data NetError
-    = NetErrorUnspecified
-    | NetErrorEncounteredMsgErrorDuringDecode Msg.MsgError
-    | NetErrorUnimplemented
-    | NetErrorEncounteredAlgoErrorDuringSubgraph
-    | NetErrorEncounteredAlgoErrorDuringBisectSelection
-    | NetErrorServerError
+data Error
+    = ErrorUnspecified
+    | ErrorEncounteredMsgErrorDuringDecode Msg.MsgError
+    | ErrorUnimplemented
+    | ErrorEncounteredAlgoErrorDuringSubgraph Algo.Error
+    | ErrorEncounteredAlgoErrorDuringBisectSelection
+    | ErrorServerError
     deriving (Show)
 
-type ClientResult = Either NetError String
+type ClientResult = Either Error String
 type Client = WS.Connection -> IO ClientResult
 
 -- Initialise repo map with empty ancestors.
@@ -79,18 +80,12 @@ run c sc = do
 showClientResult (Left err) = "nope sry, error: " ++ show err
 showClientResult (Right yay) = "yay worked, msg: " ++ yay
 
-decodeOrWrapError msg = mapLeft NetErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
+decodeOrWrapError msg = mapLeft ErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
 
-tryRecvAndDecode :: Aeson.FromJSON a => WS.Connection -> ExceptT NetError IO a
+tryRecvAndDecode :: Aeson.FromJSON a => WS.Connection -> ExceptT Error IO a
 tryRecvAndDecode conn = do
     msg <- lift $ (recv conn :: IO ByteString)
     tryRight $ decodeOrWrapError msg
-
-filter_both cGood cBad g =
-    Algo.git_repo_sg_bad cBad g >>= Algo.git_repo_sg_good cGood cBad
-
-filter_good = Algo.git_repo_sg_good
-filter_bad = Algo.git_repo_sg_bad
 
 -- all done in an ExceptT ClientResult IO a
 -- lift wraps an IO a into our monad
@@ -107,7 +102,7 @@ client cc conn = runExceptT $ do
     -- Move to repo/score state
     clientStateNextRepoOrEnd conn
 
-clientStateNextRepoOrEnd :: WS.Connection -> ExceptT NetError IO String
+clientStateNextRepoOrEnd :: WS.Connection -> ExceptT Error IO String
 clientStateNextRepoOrEnd conn = do
     -- Receive a message
     msg <- lift $ (recv conn :: IO ByteString)
@@ -128,9 +123,9 @@ clientStateNextRepoOrEnd conn = do
                     ExceptT $ return $ Right $ show mScore
                 -- neither -> some sort of server error
                 Left err ->
-                    ExceptT $ return $ Left $ NetErrorServerError
+                    ExceptT $ return $ Left $ ErrorServerError
 
-clientStateRepo :: WS.Connection -> String -> GitGraph -> Int -> ExceptT NetError IO String
+clientStateRepo :: WS.Connection -> String -> GitGraph -> Int -> ExceptT Error IO String
 clientStateRepo conn repoName g 0 = clientStateNextRepoOrEnd conn
 clientStateRepo conn repoName g remainingInstances = do
     -- Receive an instance
@@ -140,12 +135,13 @@ clientStateRepo conn repoName g remainingInstances = do
     lift $ putStrLn $ repoName ++ ": received instance"
 
     -- Perform special good+bad initial filter
-    sg <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_both cGood cBad g
+    sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraph cBad
+
     --lift $ putStrLn "filtered graph both sides"
 
     -- Q&A loop until we find the solution
-    --cSolution <- clientStateBisectLoop conn cGood cBad sg
-    cSolution <- ExceptT $ return $ Right $ cBad
+    cSolution <- clientStateBisectLoop conn [cGood] cBad sg
+    --cSolution <- ExceptT $ return $ Right $ cBad
 
     -- Send answer
     --lift $ print $ cSolution
@@ -154,18 +150,23 @@ clientStateRepo conn repoName g remainingInstances = do
     -- And recurse for the remaining instances
     clientStateRepo conn repoName g (remainingInstances-1)
 
-clientStateBisectLoop :: WS.Connection -> GitCommit -> GitCommit -> GitGraph -> ExceptT NetError IO GitCommit
+clientStateBisectLoop :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> ExceptT Error IO GitCommit
 clientStateBisectLoop conn cGood cBad g =
     if Map.size g == 1 then ExceptT $ return $ Right $ cBad
     else do
         lift $ print $ Map.size g
-        (cBisect, g') <- tryJust NetErrorEncounteredAlgoErrorDuringBisectSelection $ Algo.git_repo_select_bisect_with_limit 10000 cBad g
+        (cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
         lift $ send conn $ Msg.MQuestion cBisect
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case (Msg.mAnswerCommitStatus mAnswer) of
-            Msg.CommitGood -> do
-                g'' <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_good cBisect cBad g'
-                clientStateBisectLoop conn cGood cBisect g''
             Msg.CommitBad -> do
-                g'' <- tryJust NetErrorEncounteredAlgoErrorDuringSubgraph $ filter_bad cBisect g'
+                g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
                 clientStateBisectLoop conn cGood cBisect g''
+            Msg.CommitGood -> do
+                g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g'
+                clientStateBisectLoop conn [cBisect] cBad g''
+
+wrapAlgoError :: (Algo.Error -> Error) -> Either Algo.Error a -> Either Error a
+wrapAlgoError e f = either (Left . e) Right f
+subgraph :: Either Algo.Error a -> Either Error a
+subgraph f = wrapAlgoError ErrorEncounteredAlgoErrorDuringSubgraph f
