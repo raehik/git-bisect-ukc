@@ -134,8 +134,8 @@ clientStateRepo conn repoName g remainingInstances = do
     let cBad = Msg.mInstanceBad mInstance
     lift $ putStrLn $ repoName ++ ": received instance"
 
-    -- Perform special good+bad initial filter
-    sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraph cBad
+    -- Perform initial filter
+    sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
 
     --lift $ putStrLn "filtered graph both sides"
 
@@ -154,16 +154,16 @@ clientStateBisectLoop :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -
 clientStateBisectLoop conn cGood cBad g =
     if Map.size g == 1 then ExceptT $ return $ Right $ cBad
     else do
-        lift $ print $ Map.size g
+        lift $ putStrLn $ "size: " ++ show (Map.size g)
         (cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
         lift $ send conn $ Msg.MQuestion cBisect
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
-        case (Msg.mAnswerCommitStatus mAnswer) of
+        case Msg.mAnswerCommitStatus mAnswer of
             Msg.CommitBad -> do
                 g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
                 clientStateBisectLoop conn cGood cBisect g''
             Msg.CommitGood -> do
-                g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g'
+                g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
                 clientStateBisectLoop conn [cBisect] cBad g''
 
 wrapAlgoError :: (Algo.Error -> Error) -> Either Algo.Error a -> Either Error a

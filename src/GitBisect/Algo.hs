@@ -25,6 +25,15 @@ scheduleUnseen seen cs l = foldl scheduleUnseen' (seen, cs) l
             then (Set.insert c seen, c:cs)
             else (seen, cs)
 
+subgraph :: GitCommit -> GitGraph -> Either Error GitGraph
+subgraph head g = subgraph' Map.empty (Set.singleton head) [head]
+    where
+        subgraph' sg _ [] = Right sg
+        subgraph' sg seen (c:cs) = do
+            gge <- lookupInGraph c g
+            let (seen', cs') = scheduleUnseen seen cs (gitGraphEntryParents gge)
+            subgraph' (Map.insert c gge sg) seen' cs'
+
 deleteSubgraph :: GitCommit -> GitGraph -> Either Error GitGraph
 deleteSubgraph head g = deleteSubgraph' g (Set.singleton head) [head]
     where
@@ -38,11 +47,17 @@ deleteSubgraph head g = deleteSubgraph' g (Set.singleton head) [head]
                         in (Map.delete c g, seen', cs')
             deleteSubgraph' g' seen' cs'
 
-subgraph :: GitCommit -> GitGraph -> Either Error GitGraph
-subgraph head g = subgraph' Map.empty (Set.singleton head) [head]
+subgraphRewriteParents :: GitCommit -> GitGraph -> Either Error GitGraph
+subgraphRewriteParents head g = do
+    gge <- lookupInGraph head g
+    subgraphRewriteParents' (Map.insert head (presentParents gge) g) (Set.singleton head) [head]
     where
-        subgraph' sg _ [] = Right sg
-        subgraph' sg seen (c:cs) = do
-            gge <- lookupInGraph c g
-            let (seen', cs') = scheduleUnseen seen cs (gitGraphEntryParents gge)
-            subgraph' (Map.insert c gge sg) seen' cs'
+        presentParents gge =
+            let parents' = filter (flip Map.member g) (gitGraphEntryParents gge)
+            in GitGraphEntry parents' Nothing
+        subgraphRewriteParents' g _ [] = Right g
+        subgraphRewriteParents' g seen (c:cs) = do
+            gge <- lookupInGraph head g
+            let gge' = presentParents gge
+            let (seen', cs') = scheduleUnseen seen cs (gitGraphEntryParents gge')
+            subgraphRewriteParents' (Map.insert c gge' g) seen' cs'
