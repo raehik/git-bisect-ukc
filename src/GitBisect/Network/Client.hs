@@ -106,6 +106,7 @@ client cc conn = runExceptT $ do
 clientStateNextRepoOrEnd :: WS.Connection -> ExceptT Error IO String
 clientStateNextRepoOrEnd conn = do
     -- Receive a message
+    lift $ putStrLn $ "receiving next repo..."
     msg <- lift $ (recv conn :: IO ByteString)
 
     -- Check whether it was a repo message, or a score message
@@ -133,7 +134,7 @@ clientStateRepo conn repoName g remainingInstances = do
     mInstance :: Msg.MInstance <- tryRecvAndDecode conn
     let cGood = Msg.mInstanceGood mInstance
     let cBad = Msg.mInstanceBad mInstance
-    lift $ putStrLn $ repoName ++ ": received instance"
+    lift $ putStrLn $ repoName ++ ": starting instance..."
 
     -- Perform initial filter
     sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
@@ -144,19 +145,21 @@ clientStateRepo conn repoName g remainingInstances = do
     -- And recurse for the remaining instances
     clientStateRepo conn repoName g (remainingInstances-1)
 
+-- Note that guard order matters greatly here - we need to check the map size
+-- before the remaining questions.
 clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> Int -> ExceptT Error IO (Maybe GitCommit)
-clientStateInstance conn cGood cBad g 0 = do
-    -- Ran out of questions
-    lift $ putStrLn $ "ran out of questions, giving up"
-    lift $ send conn $ Msg.MGiveUp
-    ExceptT $ return $ Right $ Nothing
-clientStateInstance conn cGood cBad g remQs =
-    if Map.size g == 1 then do
+clientStateInstance conn cGood cBad g remQs
+    | Map.size g == 1 = do
         -- Send answer
         lift $ putStrLn $ "solution: " ++ T.unpack cBad
         lift $ send conn $ Msg.MSolution cBad
         ExceptT $ return $ Right $ Just cBad
-    else do
+    | remQs == 0 = do
+        -- Ran out of questions
+        lift $ putStrLn $ "ran out of questions, giving up"
+        lift $ send conn $ Msg.MGiveUp
+        ExceptT $ return $ Right $ Nothing
+    | otherwise = do
         -- Select bisect commit
         --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
         (cBisect, g') <- lift $ bisectRandom g
