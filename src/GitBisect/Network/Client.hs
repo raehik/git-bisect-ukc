@@ -42,7 +42,7 @@ data ServerConfig = ServerConfig {
 
 data Error
     = ErrorUnspecified
-    | ErrorEncounteredMsgErrorDuringDecode Msg.MsgError
+    | ErrorEncounteredMsgErrorDuringDecode Msg.Error
     | ErrorUnimplemented
     | ErrorEncounteredAlgoErrorDuringSubgraph Algo.Error
     | ErrorEncounteredAlgoErrorDuringBisectSelection
@@ -110,7 +110,7 @@ clientStateNextRepoOrEnd conn = do
     msg <- lift $ (recv conn :: IO ByteString)
 
     -- Check whether it was a repo message, or a score message
-    case Msg.decode msg :: Either Msg.MsgError Msg.MRepo of
+    case Msg.decode msg :: Either Msg.Error Msg.MRepo of
         Right mRepo -> do
             -- repo -> loop over every instance
             let repoName = T.unpack $ Msg.mRepoName mRepo
@@ -119,7 +119,7 @@ clientStateNextRepoOrEnd conn = do
             lift $ putStrLn $ "solving repo: " ++ repoName
             clientStateRepo conn repoName repoGraph repoInstanceCount
         Left err ->
-            case Msg.decode msg :: Either Msg.MsgError Msg.MScore of
+            case Msg.decode msg :: Either Msg.Error Msg.MScore of
                 -- score -> loop over every instance
                 Right mScore ->
                     ExceptT $ return $ Right $ show mScore
@@ -186,7 +186,6 @@ subgraph :: Either Algo.Error a -> Either Error a
 subgraph f = wrapAlgoError ErrorEncounteredAlgoErrorDuringSubgraph f
 
 bisectRandom g = do
-    let size = Map.size g
-    rnd <- Random.randomRIO (0, size-1)
+    rnd <- Random.randomRIO (0, (Map.size g)-1)
     let randomCommit = Map.keys g !! rnd
     return (randomCommit, g)

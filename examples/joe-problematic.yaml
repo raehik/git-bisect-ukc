@@ -1,0 +1,41 @@
+- name: joe-problematic
+  graph:
+    a: []
+    b: [a]
+    c: [b]
+    d: [c]
+    e: [d]
+    f: [e]
+    g: [f]
+    h: [g]
+    i: [h]
+    j: [i]
+    k: [j]
+    l: [k]
+    m: [l]
+    "n": [m]
+    o: ["n"]
+    p: [o]
+    q: [p]
+    r: [q]
+    s: [r]
+    t: [s]
+    u: [t]
+    v: [u]
+    w: [v]
+    x: [w]
+    "y": [x]
+    z: ["y"]
+  instances:
+  - name: "1"
+    good: i
+    bad: m
+    bads: [l,m,"n",o,p,q,r,s,t,u,v,w,x,"y"]
+  - name: "2"
+    good: j
+    bad: t
+    bads: ["n","o","p","q","r","s","t","u","v","w","x","y"]
+  - name: 2-fixed
+    good: j
+    bad: t
+    bads: ["n","o","p","q","r","s","t","u","v","w","x","y",z]

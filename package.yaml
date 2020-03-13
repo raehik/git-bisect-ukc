@@ -31,6 +31,7 @@ dependencies:
 - errors >= 2.3
 - scientific >= 0.3
 - random >= 1.1
+- yaml >= 0.11
 
 library:
   source-dirs: src

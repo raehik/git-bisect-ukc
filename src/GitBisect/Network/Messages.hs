@@ -38,12 +38,12 @@ instance ToJSON CommitStatus where
     toJSON CommitGood = String "Good"
     toJSON CommitBad = String "Bad"
 
-data MsgError
-    = MsgErrorAesonDecodeFailed String
+data Error
+    = ErrorAesonDecodeFailed String
     deriving (Show)
 
-decode :: FromJSON a => ByteString -> Either MsgError a
-decode msg = mapLeft MsgErrorAesonDecodeFailed (Data.Aeson.eitherDecode msg)
+decode :: FromJSON a => ByteString -> Either Error a
+decode msg = mapLeft ErrorAesonDecodeFailed (Data.Aeson.eitherDecode msg)
 
 encode :: ToJSON a => a -> ByteString
 encode = Data.Aeson.encode

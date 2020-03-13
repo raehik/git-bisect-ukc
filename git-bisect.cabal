@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c2399aba7701c539a8fbe350f4dcd385b64bd0efae5445f979ebc3091b50007c
+-- hash: 09db0f0cd858c8306a56fa263a3a329032fae7ff874cba669498e72dc56af85b
 
 name:           git-bisect
 version:        0.3.0
@@ -26,6 +26,7 @@ library
       GitBisect.Examples
       GitBisect.Network.Client
       GitBisect.Network.Messages
+      GitBisect.Parser
       GitBisect.Types
   other-modules:
       Paths_git_bisect
@@ -43,6 +44,7 @@ library
     , text >=1.2
     , transformers >=0.5
     , websockets >=0.12
+    , yaml >=0.11
   default-language: Haskell2010
 
 executable git-bisect-exe
@@ -65,6 +67,7 @@ executable git-bisect-exe
     , text >=1.2
     , transformers >=0.5
     , websockets >=0.12
+    , yaml >=0.11
   default-language: Haskell2010
 
 test-suite git-bisect-test
@@ -88,4 +91,5 @@ test-suite git-bisect-test
     , text >=1.2
     , transformers >=0.5
     , websockets >=0.12
+    , yaml >=0.11
   default-language: Haskell2010

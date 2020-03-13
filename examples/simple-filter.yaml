@@ -1,0 +1,12 @@
+- name: simple-filter
+  graph:
+    g: [c2]
+    b: [c1, g]
+    c2: []        # filtered during deletion
+    c3: [c1]      # filtered during subgraphing
+    c1: [c2]      # kept
+  instances:
+  - name: main
+    good: g
+    bad: b
+    bads: [b, c1, c3]
