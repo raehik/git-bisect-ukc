@@ -52,10 +52,6 @@ data Error
 type ClientResult = Either Error String
 type Client = WS.Connection -> IO ClientResult
 
--- Initialise repo map with empty ancestors.
-git_repo_list_to_map :: [(GitCommit, [GitCommit])] -> GitGraph
-git_repo_list_to_map l = foldl (\m (c, c_parents) -> Map.insert c (GitGraphEntry c_parents Nothing) m) Map.empty l
-
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 send conn msg = do
     WS.sendTextData conn $ Aeson.encode msg
@@ -107,7 +103,7 @@ clientStateNextRepoOrEnd conn = do
         Right mRepo -> do
             -- repo -> loop over every instance
             let repoName = T.unpack $ Msg.mRepoName mRepo
-            let repoGraph = git_repo_list_to_map $ Msg.mRepoDag mRepo
+            let repoGraph = Msg.dagToMap $ Msg.mRepoDag mRepo
             let repoInstanceCount = Msg.mRepoInstanceCount mRepo
             lift $ putStrLn $ "solving repo: " ++ repoName
             clientStateRepo conn repoName repoGraph repoInstanceCount
@@ -173,10 +169,7 @@ clientStateInstance conn cGood cBad g remQs
                 lift $ putStrLn $ T.unpack cBisect ++ ": good (" ++ show (Map.size g''') ++ ")"
                 clientStateInstance conn [cBisect] cBad g''' (remQs-1)
 
-wrapAlgoError :: (Algo.Error -> Error) -> Either Algo.Error a -> Either Error a
-wrapAlgoError e f = either (Left . e) Right f
-subgraph :: Either Algo.Error a -> Either Error a
-subgraph f = wrapAlgoError ErrorEncounteredAlgoErrorDuringSubgraph f
+subgraph f = mapLeft ErrorEncounteredAlgoErrorDuringSubgraph f
 
 bisectRandom g = do
     rnd <- Random.randomRIO (0, (Map.size g)-1)

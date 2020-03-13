@@ -129,3 +129,7 @@ instance FromJSON ProblemScore where
 data MGiveUp = MGiveUp deriving (Show, Generic)
 instance ToJSON MGiveUp where
     toJSON MGiveUp = String "GiveUp"
+
+-- Initialise graph with empty ancestors.
+dagToMap :: [(GitCommit, [GitCommit])] -> GitGraph
+dagToMap = foldl (\m (c, cps) -> Map.insert c (GitGraphEntry cps Nothing) m) Map.empty
