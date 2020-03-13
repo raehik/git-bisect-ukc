@@ -52,6 +52,12 @@ data Error
 type ClientResult = Either Error String
 type Client = WS.Connection -> IO ClientResult
 
+serverCfg_test = ServerConfig "129.12.44.229" 1234 "/"
+serverCfg_submission = ServerConfig "129.12.44.246" 1234 "/"
+
+client_bo207 = client clientCfg_bo207
+clientCfg_bo207 = ClientConfig $ ClientAuth "bo207" "49ea39ac"
+
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 send conn msg = do
     WS.sendTextData conn $ Aeson.encode msg
@@ -60,11 +66,6 @@ recv :: WS.WebSocketsData a => WS.Connection -> IO a
 recv conn = do
     d <- WS.receiveData conn
     return d
-
-serverCfg_test = ServerConfig "129.12.44.229" 1234 "/"
-clientCfg_bo207 = ClientConfig $ ClientAuth "bo207" "49ea39ac"
-
-client_bo207 = client clientCfg_bo207
 
 -- | Run a client against the given server.
 run :: Client -> ServerConfig -> IO ClientResult
