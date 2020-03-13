@@ -56,7 +56,6 @@ type RepoSolutions = (Text, [InstanceSolution])
 type InstanceSolution = (Text, Either Error Solution)
 type Solution = (GitCommit, Int)
 
--- Outer error is for repo file, inner is for each instance of each repo.
 processRepoFile :: FilePath -> IO (Either Error [RepoSolutions])
 processRepoFile file = runExceptT $ do
     repos <- parseRepoFile file
@@ -73,11 +72,8 @@ convertGraph graph = Map.map (\cps -> GitGraphEntry cps Nothing) graph
 solveRepo :: GitRepo -> IO [InstanceSolution]
 solveRepo repo = do
     let graph = convertGraph $ gitRepoGraph repo
-    --scores <- mapM (\v -> runExceptT . solveInstance graph $ v >>= (\x -> return (gitRepoInstanceName v, x))) (gitRepoInstances repo)
-    scores <- mapM (f graph) (gitRepoInstances repo)
-    return scores
+    mapM (f graph) (gitRepoInstances repo)
     where
-        f :: GitGraph -> GitRepoInstance -> IO InstanceSolution
         f graph inst = do
             sol <- runExceptT $ solveInstance graph inst
             return $ prependName (gitRepoInstanceName inst) sol
