@@ -1,9 +1,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module GitBisect.Parser where
 
--- Aeson uses lazy ByteStrings, but YAML uses strict ones? Weird.
+-- Note that the YAML library uses strict ByteStrings, where as the JSON library
+-- Aeson uses lazy. Looks like the YAML library is a wrapper around a C lib?
 
 import GitBisect.Types
 import qualified GitBisect.Algo as Algo
@@ -19,6 +21,7 @@ import Data.Either.Combinators (mapLeft)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import qualified System.Random as Random
+import Control.Exception
 
 data GitRepo = GitRepo {
     gitRepoName :: Text,
@@ -50,11 +53,17 @@ instance FromJSON GitRepoInstance where
 data Error
     = ErrorYamlDecodeFailed ParseException
     | ErrorEncounteredAlgoErrorDuringSubgraph Algo.Error
+    | ErrorWhenReadingFile IOException
     deriving (Show)
 
 type RepoSolutions = (Text, [InstanceSolution])
 type InstanceSolution = (Text, Either Error Solution)
 type Solution = (GitCommit, Int)
+
+-- Read a file or safely error out with a message on failure.
+readFileEither :: FilePath -> ExceptT Error IO BS.ByteString
+readFileEither file =
+    ExceptT $ catch (Right <$> BS.readFile file) (\(e :: IOException) -> Left <$> (return $ ErrorWhenReadingFile e))
 
 processRepoFile :: FilePath -> IO (Either Error [RepoSolutions])
 processRepoFile file = runExceptT $ do
@@ -64,7 +73,7 @@ processRepoFile file = runExceptT $ do
 
 parseRepoFile :: FilePath -> ExceptT Error IO [GitRepo]
 parseRepoFile file = do
-    bytes <- lift $ BS.readFile file
+    bytes <- readFileEither file
     ExceptT $ return $ mapLeft ErrorYamlDecodeFailed $ decodeEither' bytes
 
 convertGraph graph = Map.map (\cps -> GitGraphEntry cps Nothing) graph

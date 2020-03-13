@@ -59,12 +59,10 @@ git_repo_list_to_map l = foldl (\m (c, c_parents) -> Map.insert c (GitGraphEntry
 send :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 send conn msg = do
     WS.sendTextData conn $ Aeson.encode msg
-    --putStrLn "message sent"
 
 recv :: WS.WebSocketsData a => WS.Connection -> IO a
 recv conn = do
     d <- WS.receiveData conn
-    --putStrLn "message received"
     return d
 
 serverCfg_test = ServerConfig "129.12.44.229" 1234 "/"
@@ -78,15 +76,10 @@ run c sc = do
     putStrLn "starting client..."
     WS.runClient (T.unpack $ serverConfigHost sc) (serverConfigPort sc) (T.unpack $ serverConfigPath sc) c
 
-showClientResult (Left err) = "nope sry, error: " ++ show err
-showClientResult (Right yay) = "yay worked, msg: " ++ yay
-
-decodeOrWrapError msg = mapLeft ErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
-
 tryRecvAndDecode :: Aeson.FromJSON a => WS.Connection -> ExceptT Error IO a
 tryRecvAndDecode conn = do
     msg <- lift $ (recv conn :: IO ByteString)
-    tryRight $ decodeOrWrapError msg
+    tryRight $ mapLeft ErrorEncounteredMsgErrorDuringDecode $ Msg.decode msg
 
 -- all done in an ExceptT ClientResult IO a
 -- lift wraps an IO a into our monad
@@ -122,10 +115,10 @@ clientStateNextRepoOrEnd conn = do
             case Msg.decode msg :: Either Msg.Error Msg.MScore of
                 -- score -> loop over every instance
                 Right mScore ->
-                    ExceptT $ return $ Right $ show mScore
+                    tryRight $ Right $ show mScore
                 -- neither -> some sort of server error
                 Left err ->
-                    ExceptT $ return $ Left $ ErrorServerError
+                    tryRight $ Left $ ErrorServerError
 
 clientStateRepo :: WS.Connection -> String -> GitGraph -> Int -> ExceptT Error IO String
 clientStateRepo conn repoName g 0 = clientStateNextRepoOrEnd conn
@@ -137,7 +130,7 @@ clientStateRepo conn repoName g remainingInstances = do
     lift $ putStrLn $ repoName ++ ": starting instance..."
 
     -- Perform initial filter
-    sg <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
+    sg <- tryRight $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
 
     -- Solve instance and send answer
     cSolution <- clientStateInstance conn [cGood] cBad sg 30
@@ -153,12 +146,12 @@ clientStateInstance conn cGood cBad g remQs
         -- Send answer
         lift $ putStrLn $ "solution: " ++ T.unpack cBad
         lift $ send conn $ Msg.MSolution cBad
-        ExceptT $ return $ Right $ Just cBad
+        tryRight $ Right $ Just cBad
     | remQs == 0 = do
         -- Ran out of questions
         lift $ putStrLn $ "ran out of questions, giving up"
         lift $ send conn $ Msg.MGiveUp
-        ExceptT $ return $ Right $ Nothing
+        tryRight $ Right $ Nothing
     | otherwise = do
         -- Select bisect commit
         --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
@@ -170,13 +163,13 @@ clientStateInstance conn cGood cBad g remQs
         case Msg.mAnswerCommitStatus mAnswer of
             Msg.CommitBad -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
-                g'' <- ExceptT $ return $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
+                g'' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
                 lift $ putStrLn $ T.unpack cBisect ++ ": bad  (" ++ show (Map.size g'') ++ ")"
                 clientStateInstance conn cGood cBisect g'' (remQs-1)
             Msg.CommitGood -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
                 let g'' = Algo.deleteSubgraphForce cBisect g'
-                g''' <- ExceptT $ return $ subgraph $ Algo.subgraphRewriteParents cBad g''
+                g''' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBad g''
                 lift $ putStrLn $ T.unpack cBisect ++ ": good (" ++ show (Map.size g''') ++ ")"
                 clientStateInstance conn [cBisect] cBad g''' (remQs-1)
 
