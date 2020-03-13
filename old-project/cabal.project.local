@@ -1,9 +1,0 @@
-library-vanilla: False
-shared: True
-executable-dynamic: True
-
-package *
-  ghc-options: -dynamic
-
-program-options
-  ghc-options: -dynamic
