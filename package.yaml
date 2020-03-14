@@ -41,9 +41,11 @@ executables:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
+    # TODO: ensure that -with-rtsopts=-N isn't fucking us on raptor
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -O2
     dependencies:
     - git-bisect
 
