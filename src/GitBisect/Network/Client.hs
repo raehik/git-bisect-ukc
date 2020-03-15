@@ -6,7 +6,6 @@ module GitBisect.Network.Client where
 import GitBisect.Types
 import qualified GitBisect.Network.Messages as Msg
 import qualified GitBisect.Algo as Algo
-import qualified GitBisect.AlgoOld as AlgoOld
 
 import qualified Data.Aeson as Aeson
 import qualified Network.WebSockets as WS
