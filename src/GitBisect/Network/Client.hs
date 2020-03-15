@@ -132,9 +132,10 @@ clientStateRepo conn repoName g convToIntMap remainingInstances = do
     mInstance :: Msg.MInstance <- tryRecvAndDecode conn
     let cGood = convToInt $ Msg.mInstanceGood mInstance
     let cBad = convToInt $ Msg.mInstanceBad mInstance
-    lift $ putStrLn $ repoName ++ ": starting instance: initial filter..."
+    lift $ putStrLn $ repoName ++ ": remaining instances: " ++ show remainingInstances
 
     -- Perform initial filter
+    lift $ putStrLn $ "initial filter..."
     let sg = Algo.deleteSubgraphForce cGood g
 
     -- Solve instance and send answer
