@@ -31,9 +31,9 @@ dependencies:
 - errors >= 2.3
 - scientific >= 0.3
 - random >= 1.1
-- yaml >= 0.11
-- parallel >= 3.2
-- mtl >= 2.2
+#- yaml >= 0.11
+#- parallel >= 3.2
+#- mtl >= 2.2
 
 library:
   source-dirs: src
