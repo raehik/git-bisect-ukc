@@ -4,9 +4,13 @@ import Data.Set (Set)
 import Data.Map (Map)
 import Data.Text (Text)
 
-type GitCommit = Text
-type GitGraph = Map GitCommit GitGraphEntry
-data GitGraphEntry = GitGraphEntry {
-    gitGraphEntryParents :: [GitCommit],
-    gitGraphEntryAncestors :: Maybe (Set GitCommit)
+type CommitID = Text
+type CommitGraph = Map CommitID CommitGraphEntry
+data CommitGraphEntry = CommitGraphEntry {
+    commitGraphEntryParents :: [CommitID],
+    commitGraphEntryAncestors :: Maybe (Set CommitID)
 } deriving (Show)
+data CommitStatus
+    = CommitGood
+    | CommitBad
+    deriving (Show)

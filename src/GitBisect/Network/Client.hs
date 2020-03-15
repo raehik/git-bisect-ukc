@@ -22,7 +22,6 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Either.Combinators (mapLeft)
 import Control.Error.Safe (tryRight, tryJust)
-import Data.Maybe (fromMaybe)
 import qualified System.Random as Random
 
 data ClientConfig = ClientConfig {
@@ -117,7 +116,7 @@ clientStateNextRepoOrEnd conn = do
                 Left err ->
                     tryRight $ Left $ ErrorServerError
 
-clientStateRepo :: WS.Connection -> String -> GitGraph -> Int -> ExceptT Error IO String
+clientStateRepo :: WS.Connection -> String -> CommitGraph -> Int -> ExceptT Error IO String
 clientStateRepo conn repoName g 0 = clientStateNextRepoOrEnd conn
 clientStateRepo conn repoName g remainingInstances = do
     -- Receive an instance
@@ -137,7 +136,7 @@ clientStateRepo conn repoName g remainingInstances = do
 
 -- Note that guard order matters greatly here - we need to check the map size
 -- before the remaining questions.
-clientStateInstance :: WS.Connection -> [GitCommit] -> GitCommit -> GitGraph -> Int -> ExceptT Error IO (Maybe GitCommit)
+clientStateInstance :: WS.Connection -> [CommitID] -> CommitID -> CommitGraph -> Int -> ExceptT Error IO (Maybe CommitID)
 clientStateInstance conn cGood cBad g remQs
     | Map.size g == 1 = do
         -- Send answer
@@ -158,12 +157,12 @@ clientStateInstance conn cGood cBad g remQs
         lift $ send conn $ Msg.MQuestion cBisect
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
-            Msg.CommitBad -> do
+            CommitBad -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
                 g'' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
                 lift $ putStrLn $ T.unpack cBisect ++ ": bad  (" ++ show (Map.size g'') ++ ")"
                 clientStateInstance conn cGood cBisect g'' (remQs-1)
-            Msg.CommitGood -> do
+            CommitGood -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
                 let g'' = Algo.deleteSubgraphForce cBisect g'
                 g''' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBad g''

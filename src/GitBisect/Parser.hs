@@ -25,7 +25,7 @@ import Control.Exception
 
 data GitRepo = GitRepo {
     gitRepoName :: Text,
-    gitRepoGraph :: Map GitCommit [GitCommit],
+    gitRepoGraph :: Map CommitID [CommitID],
     gitRepoInstances :: [GitRepoInstance]
 } deriving (Show)
 instance FromJSON GitRepo where
@@ -37,9 +37,9 @@ instance FromJSON GitRepo where
 
 data GitRepoInstance = GitRepoInstance {
     gitRepoInstanceName :: Text,
-    gitRepoInstanceGood :: GitCommit,
-    gitRepoInstanceBad :: GitCommit,
-    gitRepoInstanceBads :: Set GitCommit
+    gitRepoInstanceGood :: CommitID,
+    gitRepoInstanceBad :: CommitID,
+    gitRepoInstanceBads :: Set CommitID
 } deriving (Show)
 instance FromJSON GitRepoInstance where
     parseJSON = withObject "GitRepoInstance" $ \o -> do
@@ -58,7 +58,7 @@ data Error
 
 type RepoSolutions = (Text, [InstanceSolution])
 type InstanceSolution = (Text, Either Error Solution)
-type Solution = (GitCommit, Int)
+type Solution = (CommitID, Int)
 
 -- Read a file or safely error out with a message on failure.
 readFileEither :: FilePath -> ExceptT Error IO BS.ByteString
@@ -76,7 +76,7 @@ parseRepoFile file = do
     bytes <- readFileEither file
     ExceptT $ return $ mapLeft ErrorYamlDecodeFailed $ decodeEither' bytes
 
-convertGraph graph = Map.map (\cps -> GitGraphEntry cps Nothing) graph
+convertGraph graph = Map.map (\cps -> CommitGraphEntry cps Nothing) graph
 
 solveRepo :: GitRepo -> IO [InstanceSolution]
 solveRepo repo = do
@@ -90,7 +90,7 @@ solveRepo repo = do
         prependName name =
             either (\err -> (name, Left err)) (\sol -> (name, Right sol))
 
-solveInstance :: GitGraph -> GitRepoInstance -> ExceptT Error IO Solution
+solveInstance :: CommitGraph -> GitRepoInstance -> ExceptT Error IO Solution
 solveInstance graph inst = do
     lift $ putStrLn "NEXT"
     solveInstance' graph inst [(gitRepoInstanceGood inst)] (gitRepoInstanceBad inst) 0

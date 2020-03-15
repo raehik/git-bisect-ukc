@@ -26,10 +26,6 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Either.Combinators (mapLeft)
 import Data.Scientific as Scientific
 
-data CommitStatus
-    = CommitGood
-    | CommitBad
-    deriving (Show, Generic)
 instance FromJSON CommitStatus where
     parseJSON (String "Good") = return CommitGood
     parseJSON (String "Bad") = return CommitBad
@@ -60,7 +56,7 @@ instance ToJSON MAuth where
 data MRepo = MRepo {
     mRepoName :: Text,
     mRepoInstanceCount :: Int,
-    mRepoDag :: [(GitCommit, [GitCommit])]
+    mRepoDag :: [(CommitID, [CommitID])]
 } deriving (Show, Generic)
 instance FromJSON MRepo where
     parseJSON = withObject "MRepo" $ \o -> do
@@ -98,7 +94,7 @@ instance FromJSON MAnswer where
         return MAnswer{..}
 
 data MSolution = MSolution {
-    mSolutionCommit :: GitCommit
+    mSolutionCommit :: CommitID
 } deriving (Show, Generic)
 instance ToJSON MSolution where
     toJSON MSolution{..} = object [
@@ -106,7 +102,7 @@ instance ToJSON MSolution where
         ]
 
 data MScore = MScore {
-    mScoreScores :: Map GitCommit ProblemScore
+    mScoreScores :: Map CommitID ProblemScore
 } deriving (Show, Generic)
 instance FromJSON MScore where
     parseJSON = withObject "MScore" $ \o -> do
@@ -131,5 +127,5 @@ instance ToJSON MGiveUp where
     toJSON MGiveUp = String "GiveUp"
 
 -- Initialise graph with empty ancestors.
-dagToMap :: [(GitCommit, [GitCommit])] -> GitGraph
-dagToMap = foldl (\m (c, cps) -> Map.insert c (GitGraphEntry cps Nothing) m) Map.empty
+dagToMap :: [(CommitID, [CommitID])] -> CommitGraph
+dagToMap = foldl (\m (c, cps) -> Map.insert c (CommitGraphEntry cps Nothing) m) Map.empty
