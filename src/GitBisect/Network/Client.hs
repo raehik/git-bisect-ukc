@@ -135,7 +135,7 @@ clientStateRepo conn repoName g convToIntMap remainingInstances = do
     lift $ putStrLn $ repoName ++ ": starting instance: initial filter..."
 
     -- Perform initial filter
-    sg <- tryRight $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
+    let sg = Algo.deleteSubgraphForce cGood g
 
     -- Solve instance and send answer
     let convToNet = (Map.!) $ invertBijection convToIntMap
@@ -172,16 +172,13 @@ clientStateInstance conn cGood cBad g conv remQs
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
             CommitBad -> do
-                --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
-                g'' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
+                let g'' = Algo.subgraphForce cBisect g'
                 lift $ putStrLn $ T.unpack (conv cBisect) ++ ": bad  (" ++ show (Map.size g'') ++ ")"
                 clientStateInstance conn cGood cBisect g'' conv (remQs-1)
             CommitGood -> do
-                --g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
                 let g'' = Algo.deleteSubgraphForce cBisect g'
-                g''' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBad g''
-                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g''') ++ ")"
-                clientStateInstance conn [cBisect] cBad g''' conv (remQs-1)
+                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g'') ++ ")"
+                clientStateInstance conn [cBisect] cBad g'' conv (remQs-1)
 
 subgraph f = mapLeft ErrorEncounteredAlgoErrorDuringSubgraph f
 

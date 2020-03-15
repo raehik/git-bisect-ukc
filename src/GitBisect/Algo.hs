@@ -34,6 +34,18 @@ subgraph head g = subgraph' Map.empty (Set.singleton head) [head]
             let (seen', cs') = scheduleUnseen seen cs (commitGraphEntryParents gge)
             subgraph' (Map.insert c gge sg) seen' cs'
 
+-- Continue on missing commits.
+subgraphForce :: CommitID -> CommitGraph -> CommitGraph
+subgraphForce head g = traverse Map.empty (Set.singleton head) [head]
+    where
+        traverse sg _ [] = sg
+        traverse sg seen (c:cs) =
+            case Map.lookup c g of
+                Nothing -> traverse sg seen cs
+                Just gge ->
+                    let (seen', cs') = scheduleUnseen seen cs (commitGraphEntryParents gge) in
+                    traverse (Map.insert c gge sg) seen' cs'
+
 deleteSubgraph :: CommitID -> CommitGraph -> Either Error CommitGraph
 deleteSubgraph head g = deleteSubgraph' g (Set.singleton head) [head]
     where
