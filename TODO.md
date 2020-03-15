@@ -17,3 +17,15 @@
     * https://stackoverflow.com/questions/4576734/why-do-we-need-seq-or-pseq-with-par-in-haskell
   * cool check this out https://wiki.haskell.org/Difference_list
   * cool WOW https://www.parsonsmatt.org/2017/04/26/basic_type_level_programming_in_haskell.html
+  * replace things with newtype, see if it speeds up? https://wiki.haskell.org/Newtype
+
+MTL/transformer stack/whatever:
+
+  * https://wiki.haskell.org/Monad_Transformers
+  * StateT (lazy) https://hackage.haskell.org/package/transformers-0.5.6.2/docs/Control-Monad-Trans-State-Lazy.html
+  * StateT (strict) https://hackage.haskell.org/package/transformers-0.5.6.2/docs/Control-Monad-Trans-State-Strict.html
+  * https://en.wikibooks.org/wiki/Haskell/Monad_transformers#The_State_transformer
+  * https://en.wikibooks.org/wiki/Haskell/Understanding_monads/State
+
+CAN'T MOVE TO BYTESTRING FOR OPERATIONS. I'd love to, it certainly could be
+faster, but Aeson decodes everything to Text anyway.

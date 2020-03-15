@@ -33,6 +33,7 @@ dependencies:
 - random >= 1.1
 - yaml >= 0.11
 - parallel >= 3.2
+- mtl >= 2.2
 
 library:
   source-dirs: src
