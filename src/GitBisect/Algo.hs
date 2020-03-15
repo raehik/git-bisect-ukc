@@ -90,8 +90,21 @@ subgraphRewriteParents head g = do
             let (seen', cs') = scheduleUnseen seen cs (commitGraphEntryParents gge')
             subgraphRewriteParents' (Map.insert c gge' g) seen' cs'
 
+subgraphForceInvalidateAncs :: CommitID -> CommitGraph -> CommitGraph
+subgraphForceInvalidateAncs head g =
+    traverse Map.empty (Set.singleton head) [head]
+    where
+        traverse sg _ [] = sg
+        traverse sg seen (c:cs) =
+            case Map.lookup c g of
+                Nothing -> traverse sg seen cs
+                Just gge ->
+                    let cps = commitGraphEntryParents gge in
+                    let (seen', cs') = scheduleUnseen seen cs cps in
+                    traverse (Map.insert c (CommitGraphEntry cps Nothing) sg) seen' cs'
+
 --selectBisectWithLimit rem_calcs head g =
---    selectBisectWithLimit rem_calcs [head] g (Set.singleton head) (head, 0)
+--    selectBisectWithLimit' rem_calcs [head] g (Set.singleton head) (head, 0)
 
 -- Case: Graph fully traversed. Return best commit so far (== overall best).
 --selectBisectWithLimit' _ [] g _ (cBestCur, _) = Right (cBestCur, g)
@@ -100,3 +113,80 @@ subgraphRewriteParents head g = do
 --selectBisectWithLimit' 0 _  g _ (cBestCur, _) = Right (cBestCur, g)
 
 --selectBisectWithLimit' remCalcs (c:cs) g _ (cBestCur, _) = Right (cBestCur, g)
+
+selectBisectIdeal head g =
+    selectBisectIdeal' [head] g (Set.empty) (head, 0)
+
+selectBisectIdeal' []       g   _       (cBestCur, _)           = (cBestCur, g)
+selectBisectIdeal' (c:cs)   g   done    (cBestCur, cBestRank)   =
+    if Set.member c done then
+        -- already calculated+checked, skip
+        selectBisectIdeal' cs g done (cBestCur, cBestRank)
+    else do
+        case Map.lookup c g of
+            Nothing -> selectBisectIdeal' cs g done (cBestCur, cBestRank)
+            Just gge ->
+                let cps = commitGraphEntryParents gge in
+                case commitGraphEntryAncestors gge of
+                    Nothing ->
+                        -- ancestors not yet calculated
+                        case foldl (calculateAncsOrSched g) (AncSet (Set.singleton c)) cps of
+                            AncSched cSched ->
+                                -- missing some parents ancestors, schedule them
+                                -- then reschedule current commit
+                                let cs' = revprepend (c:cs) cSched in
+                                selectBisectIdeal' cs'      g   done (cBestCur, cBestRank)
+                            AncSet cAncs ->
+                                -- successfully calculated ancestors: reschedule
+                                -- ourselves, we check in the other case
+                                -- shouldn't be a big slowdown, keeps code neat
+                                let g' = Map.insert c (CommitGraphEntry cps (Just cAncs)) g in
+                                selectBisectIdeal' (c:cs)   g'  done (cBestCur, cBestRank)
+                    Just cAncs ->
+                        -- ancestors already calculated
+                        let done' = Set.insert c done
+                            cRank = min (Set.size cAncs) ((Map.size g) - (Set.size cAncs))
+                            graphHalf = fromIntegral (Map.size g) / 2
+                            (cBestCur', cBestRank') =
+                                if cRank > cBestRank
+                                then (c, cRank)
+                                else (cBestCur, cBestRank)
+                            cs' =
+                                {-
+                                -- don't schedule if an ideal commit can't be
+                                -- found past here
+                                if cRank > ceiling graphHalf
+                                then revprepend cps cs
+                                else cs
+                                -} revprepend cps cs
+                        in
+                            if cRank > cBestRank then
+                                -- better rank found
+                                if cRank >= floor graphHalf then
+                                    -- it's a ideal bisect: end early
+                                    (c, g)
+                                else selectBisectIdeal' cs' g done' (cBestCur', cBestRank')
+                            else selectBisectIdeal' cs' g done' (cBestCur', cBestRank')
+
+data EitherAncSetOrSched
+    = AncSet (Set CommitID)
+    | AncSched [CommitID]
+
+calculateAncsOrSched g (AncSet curAncs) c =
+    case Map.lookup c g of
+        Nothing -> AncSet curAncs
+        Just gge ->
+            case commitGraphEntryAncestors gge of
+                Nothing -> AncSched [c]
+                Just cAncs -> AncSet (Set.union cAncs curAncs)
+
+calculateAncsOrSched g (AncSched curSched) c =
+    case Map.lookup c g of
+        Nothing -> AncSched curSched
+        Just gge ->
+            case commitGraphEntryAncestors gge of
+                Nothing -> AncSched (c:curSched)
+                Just cAncs -> AncSched curSched
+
+revprepend :: Foldable t => [a] -> t a -> [a]
+revprepend = foldl (flip (:))

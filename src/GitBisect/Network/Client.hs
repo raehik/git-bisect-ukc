@@ -139,6 +139,7 @@ clientStateRepo conn repoName g convToIntMap remainingInstances = do
     let sg = Algo.deleteSubgraphForce cGood g
 
     -- Solve instance and send answer
+    lift $ putStrLn $ "starting query loop..."
     let convToNet = (Map.!) $ invertBijection convToIntMap
     cSolution <- clientStateInstance conn [cGood] cBad sg convToNet 30
 
@@ -163,27 +164,44 @@ clientStateInstance conn cGood cBad g conv remQs
         lift $ putStrLn $ "ran out of questions, giving up"
         lift $ send conn $ Msg.MGiveUp
         tryRight $ Right $ Nothing
+    | Map.size g <= 10000 =
+        -- Repo considered small enough to run slow ideal bisect algorithm.
+        let (cBisect, g') = Algo.selectBisectIdeal cBad g in
+        askAndFilterWithAncestorInvalidation cBisect g'
     | otherwise = do
-        -- Select bisect commit
-        --(cBisect, g') <- tryJust ErrorEncounteredAlgoErrorDuringBisectSelection $ AlgoOld.git_repo_select_bisect_with_limit 10000 cBad g
-        (cBisect, g') <- lift $ bisectRandom g
+        cBisect <- lift $ bisectRandom g
+        askAndFilter cBisect g
+    where
+        askAndFilter cBisect g = do
+            lift $ send conn $ Msg.MQuestion (conv cBisect)
+            mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
+            case Msg.mAnswerCommitStatus mAnswer of
+                CommitBad -> do
+                    let g' = Algo.subgraphForce cBisect g
+                    lift $ putStrLn $ T.unpack (conv cBisect) ++ ": bad  (" ++ show (Map.size g') ++ ")"
+                    clientStateInstance conn cGood cBisect g' conv (remQs-1)
+                CommitGood -> do
+                    let g' = Algo.deleteSubgraphForce cBisect g
+                    lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g') ++ ")"
+                    clientStateInstance conn [cBisect] cBad g' conv (remQs-1)
+        askAndFilterWithAncestorInvalidation cBisect g = do
+            lift $ send conn $ Msg.MQuestion (conv cBisect)
+            mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
+            case Msg.mAnswerCommitStatus mAnswer of
+                CommitBad -> do
+                    let g' = Algo.subgraphForce cBisect g
+                    lift $ putStrLn $ T.unpack (conv cBisect) ++ ": bad  (" ++ show (Map.size g') ++ ")"
+                    clientStateInstance conn cGood cBisect g' conv (remQs-1)
+                CommitGood -> do
+                    let g' = Algo.deleteSubgraphForce cBisect g
+                    let g'' = Algo.subgraphForceInvalidateAncs cBad g'
+                    lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g'') ++ ")"
+                    clientStateInstance conn [cBisect] cBad g'' conv (remQs-1)
 
-        -- Query its status and recurse with an accordingly filtered graph
-        lift $ send conn $ Msg.MQuestion (conv cBisect)
-        mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
-        case Msg.mAnswerCommitStatus mAnswer of
-            CommitBad -> do
-                let g'' = Algo.subgraphForce cBisect g'
-                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": bad  (" ++ show (Map.size g'') ++ ")"
-                clientStateInstance conn cGood cBisect g'' conv (remQs-1)
-            CommitGood -> do
-                let g'' = Algo.deleteSubgraphForce cBisect g'
-                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g'') ++ ")"
-                clientStateInstance conn [cBisect] cBad g'' conv (remQs-1)
 
 subgraph f = mapLeft ErrorEncounteredAlgoErrorDuringSubgraph f
 
 bisectRandom g = do
     rnd <- Random.randomRIO (0, (Map.size g)-1)
     let randomCommit = Map.keys g !! rnd
-    return (randomCommit, g)
+    return randomCommit
