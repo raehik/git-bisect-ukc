@@ -95,18 +95,20 @@ client cc conn = runExceptT $ do
 clientStateNextRepoOrEnd :: WS.Connection -> ExceptT Error IO String
 clientStateNextRepoOrEnd conn = do
     -- Receive a message
-    lift $ putStrLn $ "receiving next repo..."
+    lift $ putStrLn $ "receiving next repo/score..."
     msg <- lift $ (recv conn :: IO ByteString)
+    lift $ putStrLn $ "decoding repo/score..."
 
     -- Check whether it was a repo message, or a score message
     case Msg.decode msg :: Either Msg.Error Msg.MRepo of
         Right mRepo -> do
             -- repo -> loop over every instance
             let repoName = T.unpack $ Msg.mRepoName mRepo
-            let repoGraph = Msg.dagToMap $ Msg.mRepoDag mRepo
             let repoInstanceCount = Msg.mRepoInstanceCount mRepo
-            lift $ putStrLn $ "solving repo: " ++ repoName
-            clientStateRepo conn repoName repoGraph repoInstanceCount
+            lift $ putStrLn $ "building internal graph..."
+            let (graph, convCommitNetToInt) = Msg.dagToMap $ Msg.mRepoDag mRepo
+            lift $ putStrLn $ "begin repo: " ++ repoName
+            clientStateRepo conn repoName graph convCommitNetToInt repoInstanceCount
         Left err ->
             case Msg.decode msg :: Either Msg.Error Msg.MScore of
                 -- score -> loop over every instance
@@ -116,32 +118,44 @@ clientStateNextRepoOrEnd conn = do
                 Left err ->
                     tryRight $ Left $ ErrorServerError
 
-clientStateRepo :: WS.Connection -> String -> CommitGraph -> Int -> ExceptT Error IO String
-clientStateRepo conn repoName g 0 = clientStateNextRepoOrEnd conn
-clientStateRepo conn repoName g remainingInstances = do
+foldToIntGraph textCommitToInt textGraph textK textV intGraph =
+    let intK = textCommitToInt textK in
+    let intVParents = map textCommitToInt (commitGraphEntryParents textV) in
+    Map.insert intK (CommitGraphEntry intVParents Nothing) intGraph
+
+clientStateRepo :: WS.Connection -> String -> CommitGraph -> (Map Text CommitID) -> Int -> ExceptT Error IO String
+clientStateRepo conn repoName g conv 0 = clientStateNextRepoOrEnd conn
+clientStateRepo conn repoName g convToIntMap remainingInstances = do
+    --lift $ print g
+    let convToInt = (Map.!) convToIntMap
     -- Receive an instance
     mInstance :: Msg.MInstance <- tryRecvAndDecode conn
-    let cGood = Msg.mInstanceGood mInstance
-    let cBad = Msg.mInstanceBad mInstance
-    lift $ putStrLn $ repoName ++ ": starting instance..."
+    let cGood = convToInt $ Msg.mInstanceGood mInstance
+    let cBad = convToInt $ Msg.mInstanceBad mInstance
+    lift $ putStrLn $ repoName ++ ": starting instance: initial filter..."
 
     -- Perform initial filter
     sg <- tryRight $ subgraph $ Algo.deleteSubgraph cGood g >>= Algo.subgraphRewriteParents cBad
 
     -- Solve instance and send answer
-    cSolution <- clientStateInstance conn [cGood] cBad sg 30
+    let convToNet = (Map.!) $ invertBijection convToIntMap
+    cSolution <- clientStateInstance conn [cGood] cBad sg convToNet 30
 
     -- And recurse for the remaining instances
-    clientStateRepo conn repoName g (remainingInstances-1)
+    clientStateRepo conn repoName g convToIntMap (remainingInstances-1)
+
+-- Cheers to subttle https://stackoverflow.com/questions/21538903/how-can-i-elegantly-invert-a-maps-keys-and-values
+invertBijection :: (Ord k, Ord v) => Map k v -> Map v k
+invertBijection = Map.foldrWithKey (flip Map.insert) Map.empty
 
 -- Note that guard order matters greatly here - we need to check the map size
 -- before the remaining questions.
-clientStateInstance :: WS.Connection -> [CommitID] -> CommitID -> CommitGraph -> Int -> ExceptT Error IO (Maybe CommitID)
-clientStateInstance conn cGood cBad g remQs
+clientStateInstance :: WS.Connection -> [CommitID] -> CommitID -> CommitGraph -> (CommitID -> Text) -> Int -> ExceptT Error IO (Maybe CommitID)
+clientStateInstance conn cGood cBad g conv remQs
     | Map.size g == 1 = do
         -- Send answer
-        lift $ putStrLn $ "solution: " ++ T.unpack cBad
-        lift $ send conn $ Msg.MSolution cBad
+        lift $ putStrLn $ "solution: " ++ T.unpack (conv cBad)
+        lift $ send conn $ Msg.MSolution (conv cBad)
         tryRight $ Right $ Just cBad
     | remQs == 0 = do
         -- Ran out of questions
@@ -154,20 +168,20 @@ clientStateInstance conn cGood cBad g remQs
         (cBisect, g') <- lift $ bisectRandom g
 
         -- Query its status and recurse with an accordingly filtered graph
-        lift $ send conn $ Msg.MQuestion cBisect
+        lift $ send conn $ Msg.MQuestion (conv cBisect)
         mAnswer :: Msg.MAnswer <- tryRecvAndDecode conn
         case Msg.mAnswerCommitStatus mAnswer of
             CommitBad -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.subgraph cBisect g'
                 g'' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBisect g' >>= Algo.subgraph cBisect
-                lift $ putStrLn $ T.unpack cBisect ++ ": bad  (" ++ show (Map.size g'') ++ ")"
-                clientStateInstance conn cGood cBisect g'' (remQs-1)
+                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": bad  (" ++ show (Map.size g'') ++ ")"
+                clientStateInstance conn cGood cBisect g'' conv (remQs-1)
             CommitGood -> do
                 --g'' <- ExceptT $ return $ subgraph $ Algo.deleteSubgraph cBisect g' >>= Algo.subgraphRewriteParents cBad
                 let g'' = Algo.deleteSubgraphForce cBisect g'
                 g''' <- tryRight $ subgraph $ Algo.subgraphRewriteParents cBad g''
-                lift $ putStrLn $ T.unpack cBisect ++ ": good (" ++ show (Map.size g''') ++ ")"
-                clientStateInstance conn [cBisect] cBad g''' (remQs-1)
+                lift $ putStrLn $ T.unpack (conv cBisect) ++ ": good (" ++ show (Map.size g''') ++ ")"
+                clientStateInstance conn [cBisect] cBad g''' conv (remQs-1)
 
 subgraph f = mapLeft ErrorEncounteredAlgoErrorDuringSubgraph f
 

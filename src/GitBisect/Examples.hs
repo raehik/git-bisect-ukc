@@ -5,8 +5,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 
-exampleToMap l =
-    foldl (\m (c, cps) -> Map.insert (T.pack c) (CommitGraphEntry (map T.pack cps) Nothing) m) Map.empty l
+--exampleToMap l =
+--    foldl (\m (c, cps) -> Map.insert (T.pack c) (CommitGraphEntry (map T.pack cps) Nothing) m) Map.empty l
 
 meh = [
     ("a", []), -- good

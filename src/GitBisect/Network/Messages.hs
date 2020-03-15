@@ -38,6 +38,8 @@ data Error
     = ErrorAesonDecodeFailed String
     deriving (Show)
 
+type NetCommitID = Text
+type NetCommitGraphNode = (NetCommitID, [NetCommitID])
 decode :: FromJSON a => ByteString -> Either Error a
 decode msg = mapLeft ErrorAesonDecodeFailed (Data.Aeson.eitherDecode msg)
 
@@ -56,7 +58,7 @@ instance ToJSON MAuth where
 data MRepo = MRepo {
     mRepoName :: Text,
     mRepoInstanceCount :: Int,
-    mRepoDag :: [(CommitID, [CommitID])]
+    mRepoDag :: [NetCommitGraphNode]
 } deriving (Show, Generic)
 instance FromJSON MRepo where
     parseJSON = withObject "MRepo" $ \o -> do
@@ -94,7 +96,7 @@ instance FromJSON MAnswer where
         return MAnswer{..}
 
 data MSolution = MSolution {
-    mSolutionCommit :: CommitID
+    mSolutionCommit :: NetCommitID
 } deriving (Show, Generic)
 instance ToJSON MSolution where
     toJSON MSolution{..} = object [
@@ -102,7 +104,7 @@ instance ToJSON MSolution where
         ]
 
 data MScore = MScore {
-    mScoreScores :: Map CommitID ProblemScore
+    mScoreScores :: Map NetCommitID ProblemScore
 } deriving (Show, Generic)
 instance FromJSON MScore where
     parseJSON = withObject "MScore" $ \o -> do
@@ -127,5 +129,23 @@ instance ToJSON MGiveUp where
     toJSON MGiveUp = String "GiveUp"
 
 -- Initialise graph with empty ancestors.
-dagToMap :: [(CommitID, [CommitID])] -> CommitGraph
-dagToMap = foldl (\m (c, cps) -> Map.insert c (CommitGraphEntry cps Nothing) m) Map.empty
+--dagToMap :: [(NetCommitID, [NetCommitID])] -> CommitGraph
+--dagToMap = foldl (\m (c, cps) -> Map.insert c (CommitGraphEntry cps Nothing) m) Map.empty
+
+-- Convert network graph to internal, and provide a conversion map.
+dagToMap :: [NetCommitGraphNode] -> (CommitGraph, Map NetCommitID CommitID)
+dagToMap netGraph = (\(a,b,c) -> (a,b)) $ foldl graphFold (Map.empty, Map.empty, 0) netGraph
+    where
+        graphFold (m, mConv, acc) (tC, tCps) =
+            let (iCps, mConv', acc') = foldl nodeFold ([], mConv, acc) tCps in
+            let gge = (CommitGraphEntry iCps Nothing) in
+            case Map.lookup tC mConv' of
+                Nothing ->
+                    let mConv'' = Map.insert tC acc' mConv' in
+                    (Map.insert acc' gge m, mConv'', acc'+1)
+                Just iC ->
+                    (Map.insert iC gge m, mConv', acc')
+        nodeFold (iCps, mConv, acc) tC =
+            case Map.lookup tC mConv of
+                Just iC -> ((iC:iCps), mConv, acc)
+                Nothing -> ((acc:iCps), Map.insert tC acc mConv, acc+1)
