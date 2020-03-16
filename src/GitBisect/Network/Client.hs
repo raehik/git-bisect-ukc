@@ -135,7 +135,10 @@ clientStateRepo conn repoName g convToIntMap remainingInstances = do
 
     -- Perform initial filter
     lift $ putStrLn $ "initial filter..."
-    let sg = Algo.deleteSubgraphForce cGood g
+    -- NOTE: *can* skip the subgraphing **IFF** you don't need the graph size on
+    -- the first run
+    --let sg = Algo.deleteSubgraphForce cGood g
+    let sg = Algo.subgraphForce cBad (Algo.deleteSubgraphForce cGood g)
 
     -- Solve instance and send answer
     lift $ putStrLn $ "starting query loop..."
@@ -167,9 +170,13 @@ clientStateInstance conn cGood cBad g conv remQs
         -- Repo considered small enough to run slow ideal bisect algorithm.
         let (cBisect, g') = Algo.selectBisectIdeal cBad g in
         askAndFilterWithAncestorInvalidation cBisect g'
-    | otherwise = do
-        cBisect <- lift $ bisectRandom g
-        askAndFilter cBisect g
+    | otherwise =
+        -- Run an "eh" algorithm that often finds a good result (dependent on
+        -- repo shape).
+        case Algo.selectBisectBfsToHalfway cBad g of
+            Nothing -> tryRight $ Left $ ErrorUnspecified
+            Just cBisect -> do
+                askAndFilter cBisect g
     where
         askAndFilter cBisect g = do
             lift $ send conn $ Msg.MQuestion (conv cBisect)

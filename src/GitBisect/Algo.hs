@@ -8,6 +8,8 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq(..))
 
 data Error
     = ErrorUnspecified
@@ -18,6 +20,7 @@ maybeToEither e f = maybe (Left e) Right f
 
 -- Common graph helper functions.
 lookupInGraph c g = maybeToEither (ErrorMissingReferencedCommit c) $ Map.lookup c g
+
 scheduleUnseen seen cs l = foldl scheduleUnseen' (seen, cs) l
     where
         scheduleUnseen' (seen, cs) c =
@@ -114,6 +117,7 @@ subgraphForceInvalidateAncs head g =
 
 --selectBisectWithLimit' remCalcs (c:cs) g _ (cBestCur, _) = Right (cBestCur, g)
 
+selectBisectIdeal :: CommitID -> CommitGraph -> (CommitID, CommitGraph)
 selectBisectIdeal head g =
     selectBisectIdeal' [head] g (Set.empty) (head, 0)
 
@@ -190,3 +194,28 @@ calculateAncsOrSched g (AncSched curSched) c =
 
 revprepend :: Foldable t => [a] -> t a -> [a]
 revprepend = foldl (flip (:))
+
+selectBisectBfsToHalfway :: CommitID -> CommitGraph -> Maybe CommitID
+selectBisectBfsToHalfway head g =
+    selectBisectBfsToHalfway' (Seq.singleton head) g (Set.empty) 0
+
+selectBisectBfsToHalfway' Seq.Empty g seen nodeNum = Nothing
+selectBisectBfsToHalfway' (c :<| queue) g seen nodeNum =
+    case Map.lookup c g of
+        Nothing -> selectBisectBfsToHalfway' queue g seen nodeNum
+        Just gge ->
+            if nodeNum == midpoint then
+                Just c
+            else
+                let (seen', queue') = scheduleUnseenQueue seen queue (commitGraphEntryParents gge) in
+                selectBisectBfsToHalfway' queue' g seen' (nodeNum+1)
+    where
+        midpoint = floor $ fromIntegral (Map.size g) / 2
+
+scheduleUnseenQueue :: Set CommitID -> Seq CommitID -> [CommitID] -> (Set CommitID, Seq CommitID)
+scheduleUnseenQueue seen queue l = foldl schedFold (seen, queue) l
+    where
+        schedFold (seen, queue) c =
+            if Set.notMember c seen
+            then (Set.insert c seen, queue Seq.|> c)
+            else (seen, queue)
