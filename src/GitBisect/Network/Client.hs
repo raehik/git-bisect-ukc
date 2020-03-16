@@ -163,7 +163,7 @@ clientStateInstance conn cGood cBad g conv remQs
         lift $ putStrLn $ "ran out of questions, giving up"
         lift $ send conn $ Msg.MGiveUp
         tryRight $ Right $ Nothing
-    | Map.size g <= 50000 =
+    | Map.size g <= 10000 =
         -- Repo considered small enough to run slow ideal bisect algorithm.
         let (cBisect, g') = Algo.selectBisectIdeal cBad g in
         askAndFilterWithAncestorInvalidation cBisect g'
