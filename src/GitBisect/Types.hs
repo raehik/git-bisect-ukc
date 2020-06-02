@@ -4,7 +4,7 @@ import Data.Set (Set)
 import Data.Map (Map)
 import Data.Text (Text)
 
-type CommitID = Text
+type CommitID = Int
 type CommitGraph = Map CommitID CommitGraphEntry
 data CommitGraphEntry = CommitGraphEntry {
     commitGraphEntryParents :: [CommitID],
